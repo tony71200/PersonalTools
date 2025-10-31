@@ -4,7 +4,7 @@ import random
 import traceback
 from typing import Callable, Dict, List, Optional
 
-from PyQt5 import QtCore, QtGui, QtWidgets, QtMultimedia, QtMultimediaWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
 from moviepy.editor import VideoFileClip, CompositeVideoClip, concatenate_videoclips
@@ -16,6 +16,11 @@ from ig_merge_video_cmd import (
     build_logo_clip,
     fit_clip_with_blurred_bg,
 )
+
+try:
+    import cv2
+except ImportError:  # pragma: no cover - cv2 is an optional runtime dependency
+    cv2 = None
 
 
 class ThumbnailCache:
@@ -34,9 +39,7 @@ class ThumbnailCache:
 
     @staticmethod
     def _generate_thumbnail(path: str, size: QtCore.QSize) -> QtGui.QPixmap:
-        try:
-            import cv2
-        except ImportError:  # pragma: no cover - cv2 is required by the original script
+        if cv2 is None:  # pragma: no cover - cv2 is required by the original script
             return QtGui.QPixmap()
 
         cap = cv2.VideoCapture(path)
@@ -123,6 +126,259 @@ class MergeWorker(QtCore.QObject):
         else:
             self.finished.emit(self._output_path)
 
+
+class VideoPreviewWidget(QtWidgets.QWidget):
+    """Simple video preview widget backed by OpenCV decoding."""
+
+    errorOccurred = QtCore.pyqtSignal(str)
+
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
+        super().__init__(parent)
+        self._cap: Optional["cv2.VideoCapture"] = None
+        self._current_frame_index: int = 0
+        self._frame_count: int = 0
+        self._fps: float = 0.0
+        self._is_playing = False
+        self._seeking = False
+        self._resume_after_seek = False
+        self._current_image: Optional[QtGui.QImage] = None
+
+        self._timer = QtCore.QTimer(self)
+        self._timer.timeout.connect(self._advance_frame)
+
+        self._setup_ui()
+        self._update_controls(False)
+
+    # region UI helpers
+    def _setup_ui(self) -> None:
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self._video_label = QtWidgets.QLabel("Chưa có video")
+        self._video_label.setAlignment(Qt.AlignCenter)
+        self._video_label.setStyleSheet("background-color: #000; color: #ccc;")
+        self._video_label.setMinimumHeight(240)
+        layout.addWidget(self._video_label, 1)
+
+        controls_layout = QtWidgets.QHBoxLayout()
+        controls_layout.setSpacing(8)
+
+        self._play_button = QtWidgets.QPushButton("▶ Phát")
+        self._play_button.clicked.connect(self.toggle_playback)
+
+        self._slider = QtWidgets.QSlider(Qt.Horizontal)
+        self._slider.setRange(0, 0)
+        self._slider.setEnabled(False)
+        self._slider.sliderPressed.connect(self._on_slider_pressed)
+        self._slider.sliderReleased.connect(self._on_slider_released)
+        self._slider.sliderMoved.connect(self._on_slider_moved)
+
+        self._time_label = QtWidgets.QLabel("00:00 / 00:00")
+        self._time_label.setMinimumWidth(110)
+        self._time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        controls_layout.addWidget(self._play_button)
+        controls_layout.addWidget(self._slider, 1)
+        controls_layout.addWidget(self._time_label)
+
+        layout.addLayout(controls_layout)
+
+    def _update_controls(self, enabled: bool) -> None:
+        self._play_button.setEnabled(enabled)
+        self._slider.setEnabled(enabled)
+        if not enabled:
+            self._play_button.setText("▶ Phát")
+
+    # endregion
+
+    # region Playback logic
+    def load(self, path: str, autoplay: bool = True) -> None:
+        self.pause()
+        self._release_capture()
+        self._current_image = None
+        self._current_frame_index = 0
+        self._frame_count = 0
+        self._fps = 0.0
+
+        if not path:
+            self._video_label.clear()
+            self._video_label.setText("Chưa có video")
+            self._update_controls(False)
+            return
+
+        if cv2 is None:
+            self._video_label.clear()
+            self._video_label.setText("Cần cài đặt OpenCV (cv2) để xem video.")
+            self._update_controls(False)
+            self.errorOccurred.emit("Thiếu thư viện cv2 để phát video.")
+            return
+
+        cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            cap.release()
+            self._video_label.clear()
+            self._video_label.setText("Không phát được video.")
+            self._update_controls(False)
+            self.errorOccurred.emit("Không thể mở video đã chọn.")
+            return
+
+        self._cap = cap
+        fps = float(cap.get(cv2.CAP_PROP_FPS))
+        self._fps = fps if fps and fps > 1e-2 else 25.0
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self._frame_count = frame_count if frame_count > 0 else 0
+
+        slider_max = self._frame_count - 1 if self._frame_count > 0 else 0
+        self._slider.blockSignals(True)
+        self._slider.setRange(0, max(0, slider_max))
+        self._slider.setValue(0)
+        self._slider.blockSignals(False)
+        self._update_time_label(0)
+
+        self._update_controls(True)
+        self._video_label.setText("Đang tải video...")
+
+        self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        self._show_frame_at(0)
+
+        if self._current_image is None:
+            self._update_controls(False)
+            return
+
+        if autoplay:
+            self.play()
+
+    def play(self) -> None:
+        if self._cap is None:
+            return
+        if self._frame_count and self._current_frame_index >= self._frame_count - 1:
+            self._show_frame_at(0)
+        interval = max(15, int(1000 / self._fps)) if self._fps else 40
+        self._timer.start(interval)
+        self._is_playing = True
+        self._play_button.setText("❚❚ Tạm dừng")
+
+    def pause(self) -> None:
+        if self._timer.isActive():
+            self._timer.stop()
+        self._is_playing = False
+        self._play_button.setText("▶ Phát")
+
+    def toggle_playback(self) -> None:
+        if self._is_playing:
+            self.pause()
+        else:
+            self.play()
+
+    def shutdown(self) -> None:
+        self.pause()
+        self._release_capture()
+        self._video_label.clear()
+        self._video_label.setText("Chưa có video")
+        self._current_image = None
+        self._update_controls(False)
+
+    def _advance_frame(self) -> None:
+        if self._cap is None:
+            self.pause()
+            return
+
+        success, frame = self._cap.read()
+        if not success or frame is None:
+            self.pause()
+            if self._frame_count:
+                self._show_frame_at(0)
+            return
+
+        index = int(max(0, self._cap.get(cv2.CAP_PROP_POS_FRAMES) - 1))
+        self._current_frame_index = index
+        self._set_slider_value(index)
+        self._update_time_label(index)
+        self._display_frame(frame)
+
+    def _show_frame_at(self, frame_index: int) -> None:
+        if self._cap is None:
+            return
+        max_index = self._frame_count - 1 if self._frame_count else frame_index
+        frame_index = max(0, min(frame_index, max_index))
+        self._cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        success, frame = self._cap.read()
+        if not success or frame is None:
+            self.errorOccurred.emit("Không thể đọc dữ liệu video.")
+            return
+        self._current_frame_index = frame_index
+        self._set_slider_value(frame_index)
+        self._update_time_label(frame_index)
+        self._display_frame(frame)
+
+    def _display_frame(self, frame: object) -> None:
+        if cv2 is None:
+            return
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        height, width, _ = rgb.shape
+        image = QtGui.QImage(rgb.data, width, height, 3 * width, QtGui.QImage.Format_RGB888)
+        self._current_image = image.copy()
+        self._update_label_pixmap()
+
+    def _update_label_pixmap(self) -> None:
+        if self._current_image is None:
+            return
+        pixmap = QtGui.QPixmap.fromImage(self._current_image)
+        self._video_label.setText("")
+        self._video_label.setPixmap(
+            pixmap.scaled(self._video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # pragma: no cover - GUI event
+        super().resizeEvent(event)
+        self._update_label_pixmap()
+
+    def _on_slider_pressed(self) -> None:
+        if not self._slider.isEnabled():
+            return
+        self._seeking = True
+        self._resume_after_seek = self._is_playing
+        self.pause()
+
+    def _on_slider_released(self) -> None:
+        if not self._seeking:
+            return
+        frame_index = self._slider.value()
+        self._show_frame_at(frame_index)
+        self._seeking = False
+        if self._resume_after_seek:
+            self.play()
+        self._resume_after_seek = False
+
+    def _on_slider_moved(self, value: int) -> None:
+        self._update_time_label(value)
+
+    def _set_slider_value(self, value: int) -> None:
+        self._slider.blockSignals(True)
+        self._slider.setValue(value)
+        self._slider.blockSignals(False)
+
+    def _update_time_label(self, frame_index: int) -> None:
+        total_seconds = self._frame_count / self._fps if self._fps and self._frame_count else 0.0
+        current_seconds = frame_index / self._fps if self._fps else 0.0
+        self._time_label.setText(f"{self._format_time(current_seconds)} / {self._format_time(total_seconds)}")
+
+    @staticmethod
+    def _format_time(seconds: float) -> str:
+        total_seconds = max(0, int(seconds))
+        minutes, secs = divmod(total_seconds, 60)
+        return f"{minutes:02d}:{secs:02d}"
+
+    def _release_capture(self) -> None:
+        if self._cap is not None:
+            try:
+                self._cap.release()
+            except Exception:
+                pass
+            self._cap = None
+
+    # endregion
 
 def merge_videos(
     paths: List[str],
@@ -284,28 +540,12 @@ class MergeWindow(QtWidgets.QMainWindow):
         vlayout = QtWidgets.QVBoxLayout(group)
         vlayout.setSpacing(8)
 
-        self.media_player = QtMultimedia.QMediaPlayer(None, QtMultimedia.QMediaPlayer.VideoSurface)
-        self.video_widget = QtMultimediaWidgets.QVideoWidget()
-        self.media_player.setVideoOutput(self.video_widget)
+        self.video_player = VideoPreviewWidget()
+        self.video_player.errorOccurred.connect(
+            lambda message: QtWidgets.QMessageBox.warning(self, "Lỗi phát video", message)
+        )
 
-        control_layout = QtWidgets.QHBoxLayout()
-        self.play_button = QtWidgets.QPushButton("▶ Phát")
-        self.play_button.setEnabled(False)
-        self.play_button.clicked.connect(self._toggle_playback)
-
-        self.position_slider = QtWidgets.QSlider(Qt.Horizontal)
-        self.position_slider.setRange(0, 0)
-        self.position_slider.sliderMoved.connect(self.media_player.setPosition)
-
-        self.media_player.positionChanged.connect(self._on_position_changed)
-        self.media_player.durationChanged.connect(self._on_duration_changed)
-        self.media_player.stateChanged.connect(self._on_state_changed)
-
-        control_layout.addWidget(self.play_button)
-        control_layout.addWidget(self.position_slider, 1)
-
-        vlayout.addWidget(self.video_widget, 1)
-        vlayout.addLayout(control_layout)
+        vlayout.addWidget(self.video_player, 1)
 
         return group
 
@@ -438,27 +678,6 @@ class MergeWindow(QtWidgets.QMainWindow):
         else:
             QtWidgets.QMessageBox.warning(self, "Không tìm thấy", "File video không còn tồn tại.")
 
-    def _toggle_playback(self) -> None:
-        if self.media_player.state() == QtMultimedia.QMediaPlayer.PlayingState:
-            self.media_player.pause()
-        else:
-            self.media_player.play()
-
-    def _on_position_changed(self, position: int) -> None:
-        self.position_slider.blockSignals(True)
-        self.position_slider.setValue(position)
-        self.position_slider.blockSignals(False)
-
-    def _on_duration_changed(self, duration: int) -> None:
-        self.position_slider.setRange(0, duration)
-        self.play_button.setEnabled(duration > 0)
-
-    def _on_state_changed(self, state: QtMultimedia.QMediaPlayer.State) -> None:
-        if state == QtMultimedia.QMediaPlayer.PlayingState:
-            self.play_button.setText("⏸ Tạm dừng")
-        else:
-            self.play_button.setText("▶ Phát")
-
     # endregion
 
     # region Merge logic
@@ -586,15 +805,14 @@ class MergeWindow(QtWidgets.QMainWindow):
     def _play_video(self, path: str) -> None:
         if not path:
             return
-        url = QtCore.QUrl.fromLocalFile(path)
-        self.media_player.setMedia(QtMultimedia.QMediaContent(url))
-        self.media_player.play()
+        self.video_player.load(path)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # pragma: no cover - GUI close behaviour
         if self._merge_thread and self._merge_thread.isRunning():
             QtWidgets.QMessageBox.warning(self, "Đang xử lý", "Vui lòng đợi quá trình merge kết thúc.")
             event.ignore()
             return
+        self.video_player.shutdown()
         super().closeEvent(event)
 
 
