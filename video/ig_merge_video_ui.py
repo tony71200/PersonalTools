@@ -9,7 +9,7 @@ from PyQt5.QtCore import Qt
 
 from moviepy.editor import VideoFileClip, CompositeVideoClip, concatenate_videoclips
 
-from video.ig_merge_video_cmd import (
+from ig_merge_video_cmd import (
     TARGET_SIZE,
     TRANSITION_RANGE,
     apply_random_kenburns,
@@ -601,6 +601,10 @@ class MergeWindow(QtWidgets.QMainWindow):
 def main() -> None:
     QtWidgets.QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     app = QtWidgets.QApplication(sys.argv)
+    try:
+        with open("MacOS.qss", 'r') as f:
+            app.setStyleSheet(f.read())
+    except: pass
     window = MergeWindow()
     window.show()
     sys.exit(app.exec_())
