@@ -1,3 +1,6 @@
+"""
+Sử dụng nhận dạng khuôn mặt để lọc các ảnh có mặt người và gộp các ảnh gần giống thành 1 nhóm
+"""
 import os
 import cv2
 import shutil
