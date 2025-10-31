@@ -38,6 +38,9 @@ class ThumbnailCache:
         self._cache[path] = pixmap
         return pixmap
 
+    def clear(self) -> None:
+        self._cache.clear()
+
     @staticmethod
     def _generate_thumbnail(path: str, size: QtCore.QSize) -> QtGui.QPixmap:
         if cv2 is None:  # pragma: no cover - cv2 is required by the original script
@@ -101,16 +104,22 @@ class MergeQueueItem(QtWidgets.QWidget):
         layout.addWidget(remove_button, alignment=Qt.AlignCenter)
 
 
+class MergeCancelledError(Exception):
+    """Raised when a merge task is cancelled by the user."""
+
+
 class MergeWorker(QtCore.QObject):
     finished = QtCore.pyqtSignal(str)
     error = QtCore.pyqtSignal(str)
     status = QtCore.pyqtSignal(str)
+    cancelled = QtCore.pyqtSignal(str)
 
     def __init__(self, paths: List[str], output_path: str, logo_path: str = ""):
         super().__init__()
         self._paths = paths
         self._output_path = output_path
         self._logo_path = logo_path
+        self._cancel_requested = False
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
@@ -120,12 +129,21 @@ class MergeWorker(QtCore.QObject):
                 self._output_path,
                 logo_path=self._logo_path,
                 status_callback=self.status.emit,
+                should_cancel=self._should_cancel,
             )
+        except MergeCancelledError:
+            self.cancelled.emit(self._output_path)
         except Exception as exc:  # pragma: no cover - GUI runtime behaviour
             traceback.print_exc()
             self.error.emit(str(exc))
         else:
             self.finished.emit(self._output_path)
+
+    def request_cancel(self) -> None:
+        self._cancel_requested = True
+
+    def _should_cancel(self) -> bool:
+        return self._cancel_requested
 
 
 class VideoPreviewWidget(QtWidgets.QWidget):
@@ -386,11 +404,18 @@ def merge_videos(
     output_path: str,
     logo_path: str = "",
     status_callback: Optional[Callable[[str], None]] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> str:
     if not paths:
         raise ValueError("Chưa có video nào để merge.")
 
     status = status_callback or (lambda message: None)
+    cancel_check = should_cancel or (lambda: False)
+
+    def ensure_not_cancelled() -> None:
+        if cancel_check():
+            raise MergeCancelledError("Quá trình merge đã bị hủy.")
+
     status("Đang chuẩn bị các đoạn video...")
 
     clips: List[CompositeVideoClip] = []
@@ -400,26 +425,33 @@ def merge_videos(
     logo_clip = None
 
     try:
+        ensure_not_cancelled()
         for idx, path in enumerate(paths, start=1):
             status(f"Đang xử lý ({idx}/{len(paths)}): {os.path.basename(path)}")
+            ensure_not_cancelled()
             clip = VideoFileClip(path)
             fitted, content_box = fit_clip_with_blurred_bg(clip, target_size=TARGET_SIZE)
             fitted = apply_random_kenburns(fitted)
             clips.append(fitted)
             positions.append(content_box)
+            ensure_not_cancelled()
 
         if not clips:
             raise ValueError("Không thể tạo được clip nào từ danh sách đã chọn.")
 
         status("Đang ghép các đoạn video...")
+        ensure_not_cancelled()
         transitions = [random.uniform(*TRANSITION_RANGE) for _ in range(len(clips) - 1)]
         merged_clips = [clips[0]]
         for idx, clip in enumerate(clips[1:], start=1):
+            ensure_not_cancelled()
             merged_clips.append(clip.crossfadein(transitions[idx - 1]))
 
         slideshow = concatenate_videoclips(merged_clips, method="compose")
+        ensure_not_cancelled()
 
         status("Đang chèn logo...")
+        ensure_not_cancelled()
         x_off, y_off, _, h_fg = positions[0]
         logo_h = 150
         logo_clip = build_logo_clip(logo_path, logo_h, duration=slideshow.duration)
@@ -428,6 +460,7 @@ def merge_videos(
         final_clip = CompositeVideoClip([slideshow, logo_clip], size=TARGET_SIZE).set_duration(slideshow.duration)
 
         status("Đang xuất video...")
+        ensure_not_cancelled()
         final_clip.write_videofile(
             output_path,
             fps=30,
@@ -439,6 +472,7 @@ def merge_videos(
             threads=4,
             logger=None,
         )
+        ensure_not_cancelled()
     finally:
         if final_clip is not None:
             try:
@@ -472,10 +506,14 @@ class MergeWindow(QtWidgets.QMainWindow):
         self.resize(1280, 720)
 
         self.thumbnail_cache = ThumbnailCache()
-        self.progress_dialog: Optional[QtWidgets.QProgressDialog] = None
         self.progress_timer: Optional[QtCore.QTimer] = None
         self.progress_elapsed = QtCore.QElapsedTimer()
         self.progress_status_text = "Đang xử lý..."
+        self.progress_bar: Optional[QtWidgets.QProgressBar] = None
+        self.progress_container: Optional[QtWidgets.QWidget] = None
+        self.progress_cancel_button: Optional[QtWidgets.QAbstractButton] = None
+        self._current_output_path: str = ""
+        self._pending_close = False
 
         self._merge_thread: Optional[QtCore.QThread] = None
         self._merge_worker: Optional[MergeWorker] = None
@@ -602,6 +640,33 @@ class MergeWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.merge_list)
         layout.addLayout(logo_layout)
         layout.addWidget(merge_button, alignment=Qt.AlignRight)
+
+        progress_container = QtWidgets.QWidget()
+        progress_container.setVisible(False)
+        progress_layout = QtWidgets.QHBoxLayout(progress_container)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(8)
+
+        self.progress_bar = QtWidgets.QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setAlignment(Qt.AlignCenter)
+        self.progress_bar.setFormat("Đang xử lý...")
+
+        cancel_button = QtWidgets.QToolButton()
+        cancel_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DialogCancelButton))
+        cancel_button.setToolTip("Hủy quá trình tạo video")
+        cancel_button.setAutoRaise(True)
+        cancel_button.setFixedSize(28, 28)
+        cancel_button.clicked.connect(self._cancel_merge)
+
+        progress_layout.addWidget(self.progress_bar, 1)
+        progress_layout.addWidget(cancel_button, 0, Qt.AlignRight)
+
+        layout.addWidget(progress_container)
+
+        self.progress_container = progress_container
+        self.progress_cancel_button = cancel_button
 
         return group
 
@@ -738,22 +803,26 @@ class MergeWindow(QtWidgets.QMainWindow):
         self._merge_worker.finished.connect(self._on_merge_finished)
         self._merge_worker.error.connect(self._on_merge_error)
         self._merge_worker.status.connect(self._on_merge_status)
+        self._merge_worker.cancelled.connect(self._on_merge_cancelled)
 
         self._merge_worker.finished.connect(self._merge_thread.quit)
         self._merge_worker.error.connect(self._merge_thread.quit)
+        self._merge_worker.cancelled.connect(self._merge_thread.quit)
         self._merge_worker.finished.connect(self._merge_worker.deleteLater)
         self._merge_worker.error.connect(self._merge_worker.deleteLater)
+        self._merge_worker.cancelled.connect(self._merge_worker.deleteLater)
         self._merge_thread.finished.connect(self._merge_thread.deleteLater)
 
         self.merge_button.setEnabled(False)
         self.progress_status_text = "Đang chuẩn bị..."
-        self._show_progress_dialog()
+        self._current_output_path = output_path
+        self._show_progress_panel()
 
         self._merge_thread.start()
 
     def _on_merge_finished(self, output_path: str) -> None:
         self.merge_button.setEnabled(True)
-        self._stop_progress_dialog()
+        self._stop_progress_panel()
         self._merge_thread = None
         self._merge_worker = None
 
@@ -766,48 +835,96 @@ class MergeWindow(QtWidgets.QMainWindow):
             item.setData(Qt.UserRole, output_path)
             self.output_list.addItem(item)
             self._play_video(output_path)
+        self._current_output_path = ""
+        self._handle_pending_close_after_merge()
 
     def _on_merge_error(self, message: str) -> None:
         self.merge_button.setEnabled(True)
-        self._stop_progress_dialog()
+        self._stop_progress_panel()
         self._merge_thread = None
         self._merge_worker = None
+        if self._current_output_path and os.path.exists(self._current_output_path):
+            try:
+                os.remove(self._current_output_path)
+            except Exception:
+                pass
+        self._current_output_path = ""
+        self._handle_pending_close_after_merge()
         QtWidgets.QMessageBox.critical(self, "Lỗi", f"Không thể merge video:\n{message}")
 
     def _on_merge_status(self, message: str) -> None:
         self.progress_status_text = message
+        self._update_progress_panel()
 
-    def _show_progress_dialog(self) -> None:
-        self.progress_dialog = QtWidgets.QProgressDialog("Đang xử lý...", None, 0, 0, self)
-        self.progress_dialog.setWindowTitle("Merge video")
-        self.progress_dialog.setCancelButton(None)
-        self.progress_dialog.setWindowModality(Qt.ApplicationModal)
-        self.progress_dialog.show()
+    def _show_progress_panel(self) -> None:
+        if self.progress_container is None or self.progress_bar is None:
+            return
 
-        self.progress_elapsed.start()
+        if self.progress_timer is not None:
+            self.progress_timer.stop()
+            self.progress_timer.deleteLater()
+
         self.progress_timer = QtCore.QTimer(self)
-        self.progress_timer.timeout.connect(self._update_progress_dialog)
+        self.progress_timer.timeout.connect(self._update_progress_panel)
+        self.progress_elapsed.start()
+        self.progress_container.setVisible(True)
+        if self.progress_cancel_button is not None:
+            self.progress_cancel_button.setEnabled(True)
+        self.progress_bar.setRange(0, 0)
+        self._update_progress_panel()
         self.progress_timer.start(500)
 
-    def _stop_progress_dialog(self) -> None:
+    def _stop_progress_panel(self) -> None:
         if self.progress_timer is not None:
             self.progress_timer.stop()
             self.progress_timer.deleteLater()
             self.progress_timer = None
-        if self.progress_dialog is not None:
-            self.progress_dialog.close()
-            self.progress_dialog.deleteLater()
-            self.progress_dialog = None
+        if self.progress_container is not None:
+            self.progress_container.setVisible(False)
+        if self.progress_bar is not None:
+            self.progress_bar.reset()
+            self.progress_bar.setFormat("Đang xử lý...")
+        if self.progress_cancel_button is not None:
+            self.progress_cancel_button.setEnabled(True)
 
-    def _update_progress_dialog(self) -> None:
-        if self.progress_dialog is None:
+    def _update_progress_panel(self) -> None:
+        if self.progress_bar is None or self.progress_container is None or not self.progress_container.isVisible():
             return
         elapsed = self.progress_elapsed.elapsed() / 1000.0
 
-        def convert_seconds(seconds):
-            return time.strftime("%H:%M:%S", time.gmtime(seconds))
+        def convert_seconds(seconds: float) -> str:
+            return time.strftime("%H:%M:%S", time.gmtime(max(0.0, seconds)))
 
-        self.progress_dialog.setLabelText(f"{self.progress_status_text}\nThời gian: {convert_seconds(elapsed)}")
+        self.progress_bar.setFormat(f"{self.progress_status_text} - Thời gian: {convert_seconds(elapsed)}")
+
+    def _cancel_merge(self) -> None:
+        if not self._merge_worker or not self._merge_thread or not self._merge_thread.isRunning():
+            return
+        self.progress_status_text = "Đang hủy tiến trình..."
+        if self.progress_cancel_button is not None:
+            self.progress_cancel_button.setEnabled(False)
+        self._update_progress_panel()
+        self._merge_worker.request_cancel()
+        self._merge_thread.requestInterruption()
+
+    def _on_merge_cancelled(self, output_path: str) -> None:
+        self.merge_button.setEnabled(True)
+        self._stop_progress_panel()
+        self._merge_thread = None
+        self._merge_worker = None
+        if output_path and os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except Exception:
+                pass
+        self._current_output_path = ""
+        self._handle_pending_close_after_merge()
+        QtWidgets.QMessageBox.information(self, "Đã hủy", "Quá trình merge video đã bị hủy.")
+
+    def _handle_pending_close_after_merge(self) -> None:
+        if self._pending_close:
+            self._pending_close = False
+            QtCore.QTimer.singleShot(0, self.close)
 
     # endregion
 
@@ -818,10 +935,20 @@ class MergeWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # pragma: no cover - GUI close behaviour
         if self._merge_thread and self._merge_thread.isRunning():
-            QtWidgets.QMessageBox.warning(self, "Đang xử lý", "Vui lòng đợi quá trình merge kết thúc.")
+            answer = QtWidgets.QMessageBox.question(
+                self,
+                "Đang xử lý",
+                "Quá trình merge đang diễn ra. Bạn có muốn hủy và thoát?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No,
+            )
+            if answer == QtWidgets.QMessageBox.Yes:
+                self._pending_close = True
+                self._cancel_merge()
             event.ignore()
             return
         self.video_player.shutdown()
+        self.thumbnail_cache.clear()
         super().closeEvent(event)
 
 
