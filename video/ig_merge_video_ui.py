@@ -3,6 +3,7 @@ import sys
 import random
 import traceback
 from typing import Callable, Dict, List, Optional
+import time
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
@@ -483,18 +484,19 @@ class MergeWindow(QtWidgets.QMainWindow):
 
     # region UI setup
     def _setup_ui(self) -> None:
-        central = QtWidgets.QWidget()
-        self.setCentralWidget(central)
 
-        main_layout = QtWidgets.QHBoxLayout(central)
-        main_layout.setContentsMargins(12, 12, 12, 12)
-        main_layout.setSpacing(12)
+        self.splitter = QtWidgets.QSplitter()
+        self.setCentralWidget(self.splitter)
 
-        main_layout.addLayout(self._build_left_panel(), 1)
-        main_layout.addLayout(self._build_right_panel(), 2)
+        self.splitter.setContentsMargins(12, 12, 12, 12)
+        
+        self.splitter.addWidget(self._build_left_panel())
+        self.splitter.addWidget(self._build_right_panel())
 
-    def _build_left_panel(self) -> QtWidgets.QLayout:
-        layout = QtWidgets.QVBoxLayout()
+    def _build_left_panel(self) -> QtWidgets.QWidget:
+        
+        widget = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(widget)
         layout.setSpacing(8)
 
         header_layout = QtWidgets.QHBoxLayout()
@@ -523,17 +525,20 @@ class MergeWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.video_list, 1)
         layout.addWidget(helper_label)
 
-        return layout
+        widget.setMinimumWidth(300)
 
-    def _build_right_panel(self) -> QtWidgets.QLayout:
-        layout = QtWidgets.QVBoxLayout()
+        return widget
+
+    def _build_right_panel(self) -> QtWidgets.QWidget:
+        widget = QtWidgets.QWidget()
+        layout = QtWidgets.QGridLayout(widget)
         layout.setSpacing(12)
 
-        layout.addWidget(self._build_player_group(), 2)
-        layout.addWidget(self._build_merge_group())
-        layout.addWidget(self._build_output_group(), 1)
+        layout.addWidget(self._build_player_group(), 0, 0, 1, 1)
+        layout.addWidget(self._build_merge_group(), 1, 0, 1, 2)
+        layout.addWidget(self._build_output_group(), 0, 1, 1, 1)
 
-        return layout
+        return widget
 
     def _build_player_group(self) -> QtWidgets.QGroupBox:
         group = QtWidgets.QGroupBox("Trình xem video")
@@ -798,7 +803,11 @@ class MergeWindow(QtWidgets.QMainWindow):
         if self.progress_dialog is None:
             return
         elapsed = self.progress_elapsed.elapsed() / 1000.0
-        self.progress_dialog.setLabelText(f"{self.progress_status_text}\nThời gian: {elapsed:.1f}s")
+
+        def convert_seconds(seconds):
+            return time.strftime("%H:%M:%S", time.gmtime(seconds))
+
+        self.progress_dialog.setLabelText(f"{self.progress_status_text}\nThời gian: {convert_seconds(elapsed)}")
 
     # endregion
 
