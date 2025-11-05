@@ -13,7 +13,7 @@ QPushButton, QToolButton, QCommandLinkButton{
     border-radius: 8px;
     color: #616161;
     font-weight: bold;
-    background-color: qlineargradient(spread:pad, x1:0.5, y1:0, x2:0.5, y2:1, stop:0 #fbfdfd, stop:0.5 #ffffff, stop:1 #fbfdfd);
+    background-color: qlineargradient(spread:pad, x1:0.5, y1:0, x2:0.5, y2:1, stop:0 #fbfdfd, stop:0.5 #FFFFFF, stop:1 #fbfdfd);
 }
 QPushButton::default, QToolButton::default, QCommandLinkButton::default{
     border: 2px solid transparent;
@@ -25,7 +25,7 @@ QPushButton:hover, QToolButton:hover, QCommandLinkButton:hover{
 }
 QPushButton:pressed, QToolButton:pressed, QCommandLinkButton:pressed{
     color: #aeaeae;
-    background-color: qlineargradient(spread:pad, x1:0.5, y1:0, x2:0.5, y2:1, stop:0 #ffffff, stop:0.5 #fbfdfd, stop:1 #ffffff);
+    background-color: qlineargradient(spread:pad, x1:0.5, y1:0, x2:0.5, y2:1, stop:0 #FFFFFF, stop:0.5 #fbfdfd, stop:1 #FFFFFF);
 }
 QPushButton:disabled, QToolButton:disabled, QCommandLinkButton:disabled{
     color: #616161;
@@ -80,11 +80,11 @@ QSpinBox::down-button, QDoubleSpinBox::down-button, QTimeEdit::down-button, QDat
 }
 QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed, QTimeEdit::up-button:pressed, QDateEdit::up-button:pressed, QDateTimeEdit::up-button:pressed {
     color: #aeaeae;
-    background-color: qlineargradient(spread:pad, x1:0.5, y1:0, x2:0.5, y2:1, stop:0 #ffffff, stop:0.5 #fbfdfd, stop:1 #ffffff);
+    background-color: qlineargradient(spread:pad, x1:0.5, y1:0, x2:0.5, y2:1, stop:0 #FFFFFF, stop:0.5 #fbfdfd, stop:1 #FFFFFF);
 }
 QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed, QTimeEdit::down-button:pressed, QDateEdit::down-button:pressed, QDateTimeEdit::down-button:pressed {
     color: #aeaeae;
-    background-color: qlineargradient(spread:pad, x1:0.5, y1:0, x2:0.5, y2:1, stop:0 #ffffff, stop:0.5 #fbfdfd, stop:1 #ffffff);
+    background-color: qlineargradient(spread:pad, x1:0.5, y1:0, x2:0.5, y2:1, stop:0 #FFFFFF, stop:0.5 #fbfdfd, stop:1 #FFFFFF);
 }
 QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QTimeEdit::up-button:hover, QDateEdit::up-button:hover, QDateTimeEdit::up-button:hover {
     color: #FFFFFF;
@@ -134,7 +134,7 @@ QSlider::groove:vertical {
     width: 6px;
 }
 QSlider::handle:horizontal {
-    background: #ffffff;
+    background: #FFFFFF;
     border-style: solid;
     border-width: 1px;
     border-color: rgb(207,207,207);
@@ -143,7 +143,7 @@ QSlider::handle:horizontal {
     border-radius: 7px;
 }
 QSlider::handle:vertical {
-    background: #ffffff;
+    background: #FFFFFF;
     border-style: solid;
     border-width: 1px;
     border-color: rgb(207,207,207);
@@ -241,7 +241,7 @@ QCheckBox::indicator:checked {
     border-style:solid;
     border-width: 1px;
     border-color: #48a5fd;
-    color: #ffffff;
+    color: #FFFFFF;
     border-radius: 3px;
     background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:0, y2:1, stop:0 #48a5fd, stop:0.5 #329cfb, stop:1 #48a5fd);
 }
@@ -334,7 +334,7 @@ QRadioButton::indicator {
 }
 QRadioButton::indicator:checked {
     border-color: #48a5fd;
-    background-color: qradialgradient(cx:0.5, cy:0.5, radius:0.4,fx:0.5, fy:0.5, stop:0 #ffffff, stop:0.5 #ffffff, stop:0.6 #48a5fd, stop:1 #48a5fd);
+    background-color: qradialgradient(cx:0.5, cy:0.5, radius:0.4,fx:0.5, fy:0.5, stop:0 #FFFFFF, stop:0.5 #FFFFFF, stop:0.6 #48a5fd, stop:1 #48a5fd);
 }
 QRadioButton::indicator:!checked {
     border-color: #a9b7c6;
