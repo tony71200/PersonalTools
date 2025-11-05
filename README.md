@@ -32,6 +32,7 @@ PersonalTools/
     ├── default_logo.png — Logo mẫu sử dụng khi ghép video.
     ├── ig_merge_video_cmd.py — Logic ghép video Instagram ở dạng dòng lệnh.
     ├── ig_merge_video_ui.py — Giao diện PyQt5 để xem trước và ghép video.
+    ├── make_video_timelape.py — Tạo video bằng commandline có set time có ảnh (không logo).
     └── make_instagram_video.py — Tạo video định dạng Instagram từ ảnh/dữ liệu đầu vào.
 ```
 
