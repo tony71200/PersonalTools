@@ -4,11 +4,22 @@ import random
 import traceback
 from typing import Callable, Dict, List, Optional
 import time
+import pickle
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
-
-from moviepy.editor import VideoFileClip, CompositeVideoClip, concatenate_videoclips
+try:
+    from moviepy.editor import VideoFileClip, CompositeVideoClip, concatenate_videoclips
+except Exception:
+    try:
+        from moviepy.video.io.VideoFileClip import VideoFileClip
+        from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
+        from moviepy.video.compositing.concatenate import concatenate_videoclips
+    except Exception:  # pragma: no cover - moviepy is an optional runtime dependency
+        VideoFileClip = None
+        CompositeVideoClip = None
+        concatenate_videoclips = None
+        raise ImportError("moviepy is required to run this script.")
 
 from ig_merge_video_cmd import (
     TARGET_SIZE,
@@ -23,6 +34,68 @@ try:
 except ImportError:  # pragma: no cover - cv2 is an optional runtime dependency
     cv2 = None
 
+# CONSTANTS
+DEFAULT_ENCODING = "utf-8"
+SETTING_LAST_OPEN_DIR = 'lastOpenDir'
+
+def ustr(x):
+    """py2/py3 unicode helper"""
+
+    if sys.version_info < (3, 0, 0):
+        from PyQt4.QtCore import QString
+        if type(x) == str:
+            return x.decode(DEFAULT_ENCODING)
+        if type(x) == QString:
+            # https://blog.csdn.net/friendan/article/details/51088476
+            # https://blog.csdn.net/xxm524/article/details/74937308
+            return unicode(x.toUtf8(), DEFAULT_ENCODING, 'ignore')
+        return x
+    else:
+        return x
+
+class Settings(object):
+    """Simple settings storage using pickle."""
+
+    def __init__(self):
+        # Be default, the home will be in the same folder as labelImg
+        home = os.path.expanduser("~")
+        self.data = {}
+        self.path = os.path.join(home, '.IGVideoSettings.pkl')
+
+    def __setitem__(self, key, value):
+        self.data[key] = value
+
+    def __getitem__(self, key):
+        return self.data[key]
+
+    def get(self, key, default=None):
+        if key in self.data:
+            return self.data[key]
+        return default
+
+    def save(self):
+        if self.path:
+            with open(self.path, 'wb') as f:
+                pickle.dump(self.data, f, pickle.HIGHEST_PROTOCOL)
+                return True
+        return False
+
+    def load(self):
+        try:
+            if os.path.exists(self.path):
+                with open(self.path, 'rb') as f:
+                    self.data = pickle.load(f)
+                    return True
+        except:
+            print('Loading setting failed')
+        return False
+
+    def reset(self):
+        if os.path.exists(self.path):
+            os.remove(self.path)
+            print('Remove setting pkl file ${0}'.format(self.path))
+        self.data = {}
+        self.path = None
 
 class ThumbnailCache:
     """Utility class to lazily create and store thumbnails for video files."""
@@ -517,6 +590,11 @@ class MergeWindow(QtWidgets.QMainWindow):
 
         self._merge_thread: Optional[QtCore.QThread] = None
         self._merge_worker: Optional[MergeWorker] = None
+        self.settings = Settings()
+        self.settings.load()
+        settings = self.settings
+        self.last_open_dir = ustr(settings.get(SETTING_LAST_OPEN_DIR, None))
+        self.filePath = None
 
         self._setup_ui()
 
@@ -541,11 +619,17 @@ class MergeWindow(QtWidgets.QMainWindow):
         header_label = QtWidgets.QLabel("Danh sách video đã chọn")
         header_label.setStyleSheet("font-weight: bold;")
         add_button = QtWidgets.QPushButton("Thêm video...")
+        add_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogNewFolder))
         add_button.clicked.connect(self._handle_add_videos)
+
+        clear_button = QtWidgets.QPushButton("Xoá tất cả")
+        clear_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_TrashIcon))
+        clear_button.clicked.connect(self._clear_video_list)
 
         header_layout.addWidget(header_label)
         header_layout.addStretch(1)
         header_layout.addWidget(add_button)
+        header_layout.addWidget(clear_button)
 
         self.video_list = QtWidgets.QListWidget()
         self.video_list.setViewMode(QtWidgets.QListView.IconMode)
@@ -602,10 +686,14 @@ class MergeWindow(QtWidgets.QMainWindow):
         label.setStyleSheet("font-weight: bold;")
         add_selected_button = QtWidgets.QPushButton("Thêm các video đã chọn")
         add_selected_button.clicked.connect(self._handle_add_selected_to_merge)
+        clear_selected_button = QtWidgets.QPushButton()
+        clear_selected_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_TrashIcon))
+        clear_selected_button.clicked.connect(self._handle_clear_selected_to_merge)
 
         list_header_layout.addWidget(label)
         list_header_layout.addStretch(1)
         list_header_layout.addWidget(add_selected_button)
+        list_header_layout.addWidget(clear_selected_button)
 
         self.merge_list = QtWidgets.QListWidget()
         self.merge_list.setFlow(QtWidgets.QListView.LeftToRight)
@@ -694,14 +782,22 @@ class MergeWindow(QtWidgets.QMainWindow):
 
     # region Event handlers
     def _handle_add_videos(self) -> None:
+        # Check file IG_video.dat include the last path which is saved in C://Users
+        if self.last_open_dir and os.path.exists(self.last_open_dir):
+            initial_dir = self.last_open_dir
+        else:
+            initial_dir = os.path.dirname(self.filePath) if self.filePath else '.'
         paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
             self,
             "Chọn video",
-            "",
+            initial_dir,
             "Video Files (*.mp4 *.mov *.mkv *.avi *.m4v *.webm)"
         )
         if not paths:
             return
+        
+        self.filePath = paths[-1]
+        self.last_open_dir = os.path.dirname(self.filePath)
 
         for path in paths:
             if not os.path.isfile(path):
@@ -715,6 +811,9 @@ class MergeWindow(QtWidgets.QMainWindow):
                 item.setIcon(QtGui.QIcon(pixmap))
             item.setData(Qt.UserRole, path)
             self.video_list.addItem(item)
+
+    def _clear_video_list(self) -> None:
+        self.video_list.clear()
 
     def _handle_video_selection_changed(self) -> None:
         items = self.video_list.selectedItems()
@@ -730,6 +829,9 @@ class MergeWindow(QtWidgets.QMainWindow):
     def _handle_add_selected_to_merge(self) -> None:
         for item in self.video_list.selectedItems():
             self._add_to_merge(item.data(Qt.UserRole))
+
+    def _handle_clear_selected_to_merge(self) -> None:
+        self.merge_list.clear()
 
     def _handle_choose_logo(self) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -785,10 +887,13 @@ class MergeWindow(QtWidgets.QMainWindow):
         if not paths:
             QtWidgets.QMessageBox.information(self, "Thiếu dữ liệu", "Hãy thêm ít nhất một video vào danh sách merge.")
             return
-
+        folder_name = os.path.dirname(paths[0])
+        folder_save = os.path.dirname(self.last_open_dir) if self.last_open_dir and os.path.exists(self.last_open_dir) and os.path.exists(os.path.dirname(self.last_open_dir)) else folder_name
         output_path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
-            "Lưu video", "merged_output.mp4", "MP4 Files (*.mp4)"
+            "Lưu video", 
+            os.path.join(folder_save, f"{folder_name}.mp4"),
+            "MP4 Files (*.mp4)"
         )
         if not output_path:
             return
@@ -949,6 +1054,14 @@ class MergeWindow(QtWidgets.QMainWindow):
             return
         self.video_player.shutdown()
         self.thumbnail_cache.clear()
+        # Save settings
+        settings = self.settings
+        if self.last_open_dir and os.path.exists(self.last_open_dir):
+            settings[SETTING_LAST_OPEN_DIR] = self.last_open_dir
+        else:
+            settings[SETTING_LAST_OPEN_DIR] = ''
+        settings.save()
+
         super().closeEvent(event)
 
 
