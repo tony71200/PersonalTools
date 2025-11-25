@@ -201,7 +201,7 @@ def main():
 
     # Tạo logo (theo vị trí clip đầu tiên)
     x_off, y_off, _, h_fg = positions[0]
-    logo_h = 150
+    logo_h = 450 
     logo = build_logo_clip(logo_path, logo_h, duration=slideshow.duration)
     logo = logo.set_position((x_off + 10, y_off + h_fg - logo_h - 10))
 

@@ -2,8 +2,12 @@
 import os
 import cv2
 import numpy as np
-from nudenet import NudeDetector
-import onnxruntime as ort
+try:
+    from nudenet import NudeDetector
+except ImportError:
+    NudeDetector = None
+    print("WARNING: nudenet chưa cài, NudeNetChecker sẽ bị disable.")
+# import onnxruntime as ort
 from PIL import Image
 import tensorflow.lite as tflite
 
@@ -205,10 +209,141 @@ def run_command_line():
         except Exception as e:
             print(f"Lỗi khi xử lý ảnh {img_path}: {e}")
 
+def get_sfw_image():
+    import shutil
+    from tqdm import tqdm
+    folder = input("Thư mục chứa ảnh: ").strip()
+    if not os.path.exists(folder):
+        print("Thư mục không tồn tại.")
+        return
+    unsafe_folder = os.path.join(folder, "unsafe_ig")
+    os.makedirs(unsafe_folder, exist_ok=True)
 
+    img_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".gif"}
+    img_files = [os.path.join(folder, f) for f in os.listdir(folder) if os.path.splitext(f.lower())[1] in img_extensions]
+    if not img_files:
+        print("Không tìm thấy ảnh hợp lệ trong thư mục.")
+        return
+    for img_path in tqdm(img_files, desc="Kiểm tra ảnh NSFW", unit="ảnh"):
+        try:
+            is_unsafe = NSFW_check_image(img_path)
+            if not is_unsafe:
+                print(f"Ảnh SFW: {img_path}")
+                shutil.copy(img_path, os.path.join(unsafe_folder, os.path.basename(img_path)))
+        except Exception as e:
+            print(f"Lỗi khi xử lý ảnh {img_path}: {e}")
+
+# =========================
+#  QUẢN LÝ MODEL DÙNG LẠI
+# =========================
+
+# (Đặt đoạn try/except import NudeDetector ở gần đầu file)
+
+
+class NSFWModelManager:
+    def __init__(self, tflite_model_path="saved_model.tflite",
+                 skin_ratio_thr: float = 0.5):
+        self.skin_ratio_thr = skin_ratio_thr
+
+        # NudeNet
+        self.nude_checker = None
+        if NudeDetector is not None:
+            try:
+                self.nude_checker = NudeNetChecker()
+            except Exception as e:
+                print("Không khởi tạo được NudeNetChecker:", e)
+
+        # Skin ratio (nhẹ, load luôn)
+        self.skin_checker = SkinRatioChecker()
+
+        # TFLite
+        self.tflite_checker = None
+        try:
+            self.tflite_checker = NSFWTFLiteChecker(tflite_model_path)
+        except Exception as e:
+            print("Không khởi tạo được NSFWTFLiteChecker:", e)
+
+    def check_image(self, image_path: str):
+        """
+        Trả về:
+            is_unsafe: bool
+            details: dict chứa các kết quả con
+        """
+        nudedet_is_unsafe = False
+        if self.nude_checker is not None:
+            try:
+                nudedet_is_unsafe = self.nude_checker.is_unsafe(image_path)
+            except Exception as e:
+                print("Lỗi NudeNet:", e)
+
+        # Skin ratio
+        skin_ratio = 0.0
+        skin_is_unsafe = False
+        try:
+            skin_ratio = self.skin_checker.compute_skin_ratio(image_path)
+            skin_is_unsafe = skin_ratio >= self.skin_ratio_thr
+        except Exception as e:
+            print("Lỗi tính skin ratio:", e)
+
+        # TFLite
+        tflite_is_unsafe = False
+        if self.tflite_checker is not None:
+            try:
+                tflite_is_unsafe = self.tflite_checker.predict_unsafe(image_path)
+            except Exception as e:
+                print("Lỗi TFLite:", e)
+
+        is_unsafe = nudedet_is_unsafe or skin_is_unsafe or tflite_is_unsafe
+
+        return is_unsafe, {
+            "nudedet_is_unsafe": nudedet_is_unsafe,
+            "skin_ratio": skin_ratio,
+            "skin_is_unsafe": skin_is_unsafe,
+            "tflite_is_unsafe": tflite_is_unsafe,
+        }
+
+
+# Singleton manager dùng chung
+_model_manager: NSFWModelManager | None = None
+
+
+def load_nsfw_models(tflite_model_path: str = "saved_model.tflite",
+                     skin_ratio_thr: float = 0.5) -> NSFWModelManager:
+    """
+    Gọi 1 lần ở đầu chương trình/UI để load model.
+    """
+    global _model_manager
+    _model_manager = NSFWModelManager(
+        tflite_model_path=tflite_model_path,
+        skin_ratio_thr=skin_ratio_thr,
+    )
+    return _model_manager
+
+
+def get_nsfw_manager() -> NSFWModelManager:
+    """
+    Lazy init: nếu chưa load_nsfw_models() thì tự load với default.
+    """
+    global _model_manager
+    if _model_manager is None:
+        _model_manager = NSFWModelManager()
+    return _model_manager
+
+
+def NSFW_check_image(image_path: str) -> bool:
+    """
+    Hàm đơn giản cho UI dùng:
+    - True: NSFW
+    - False: SFW
+    (Model chỉ load lần đầu, lần sau dùng lại)
+    """
+    manager = get_nsfw_manager()
+    is_unsafe, _ = manager.check_image(image_path)
+    return is_unsafe
 
 
 if __name__ == "__main__":
-    # test_image_path = r"F:\pic\2025-05-12\00420-20250512_162138_100239_4073398145.png"  # Thay bằng đường dẫn ảnh của bạn
-    # test_nsfw(test_image_path)
-    run_command_line()
+    test_image_path = r"H:\004_Learn\110418553.png"  # Thay bằng đường dẫn ảnh của bạn
+    test_nsfw(test_image_path)
+    # run_command_line()
+    # get_sfw_image()
