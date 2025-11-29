@@ -40,7 +40,7 @@ class NSFWImageDetectorModule(ModelModuleBase):
         low_risk = proba_dict.get("low", 0)
 
         is_unsafe = high_risk > 0.7 and medium_risk > 0.6 and low_risk > 0.5
-        is_low_risk = low_risk > 0.9
+        is_low_risk = high_risk < 0.4 and medium_risk < 0.4 and low_risk > 0.9
         return is_unsafe, is_low_risk, proba_dict
 
 
