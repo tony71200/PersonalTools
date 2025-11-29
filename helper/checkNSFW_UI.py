@@ -1,46 +1,15 @@
 import os
 import sys
 import shutil
-from typing import List
+from typing import List, Sequence
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QThread
 
-import numpy as np
-from PIL import Image
-# try:
-#     from nsfw_image_detector import NSFWDetector
-# except ImportError:
-#     # Install nfsw_image_detector via pip if not found
-#     is_success = os.system(f"{sys.executable} -m pip install nsfw-image-detector")
-#     if not is_success:
-#         print("Module 'nsfw_image_detector' not found. Please install it to use NSFW detection. pip install nsfw-image-detector")
-#         sys.exit(1)
-#     else:
-#         from nsfw_image_detector import NSFWDetector
-from nsfw_image_detector import NSFWDetector
-
-class NSFWImageDetector:
-    def __init__(self):
-        self.detector = NSFWDetector()
-
-    def is_nsfw(self, image_path: str) -> bool:
-        image = Image.open(image_path)
-        return self.detector.is_nsfw(image)
-
-    def predict_proba(self, image_path: str) -> dict:
-        image = Image.open(image_path)
-        return self.detector.predict_proba(image)
-    
-    def check_image(self, image_path: str):
-        proba_dict = self.predict_proba(image_path)[0]
-        HighRisk_Proba = proba_dict["high"]
-        MediumRisk_Proba = proba_dict["medium"]
-        LowRisk_Proba = proba_dict["low"]
-
-        is_unsafe = HighRisk_Proba > 0.7 and MediumRisk_Proba > 0.6 and LowRisk_Proba > 0.5
-        is_low_risk = LowRisk_Proba > 0.9
-        return is_unsafe, is_low_risk, proba_dict
+from model_base import ModelLoadError, ModelModuleBase
+from nsfw_image_detector_module import NSFWImageDetectorModule
+from nudenet_module import NudenetModule
+from onnx_module import OnnxModule
 
 
 IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"}
@@ -52,54 +21,105 @@ def is_image_file(path: str) -> bool:
     ext = os.path.splitext(path)[1].lower()
     return ext in IMG_EXTENSIONS
 
+
 def truncate_text(text, font, max_width):
     metrics = QtGui.QFontMetrics(font)
     return metrics.elidedText(text, Qt.ElideRight, max_width)
 
+
 class NSFWModelManager:
-    def __init__(self):
-        self.detector = NSFWImageDetector()
-        pass
+    def __init__(self, modules: Sequence[ModelModuleBase]):
+        if not modules:
+            raise RuntimeError("Không có module model nào được load.")
+        self.modules = list(modules)
 
     def check_image(self, image_path: str):
-        is_unsafe, is_low_risk, proba_dict = self.detector.check_image(image_path)
-        return is_unsafe, is_low_risk, proba_dict
+        last_error: Exception | None = None
+        for module in self.modules:
+            try:
+                return module.check_image(image_path)
+            except Exception as exc:
+                last_error = exc
+                continue
+        raise RuntimeError(f"Tất cả module đều lỗi: {last_error}")
 
 
+class ModelLoaderDialog(QtWidgets.QDialog):
+    """Dialog khởi tạo model trước khi mở UI chính."""
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Khởi tạo model")
+        self.setModal(True)
+        self.loaded_modules: list[ModelModuleBase] = []
+        self.log_messages: list[str] = []
 
-# def load_nsfw_models() -> NSFWModelManager:
-#     """
-#     Gọi 1 lần ở đầu chương trình/UI để load model.
-#     """
-#     global _model_manager
-#     _model_manager = NSFWModelManager(
-        
-#     )
-#     return _model_manager
+        layout = QtWidgets.QVBoxLayout(self)
+        intro = QtWidgets.QLabel(
+            "Đang load các module model. Những module lỗi sẽ bị bỏ qua để tránh chặn UI."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
 
+        self.status_list = QtWidgets.QListWidget()
+        self.status_list.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        layout.addWidget(self.status_list, 1)
 
-# def get_nsfw_manager() -> NSFWModelManager:
-#     """
-#     Lazy init: nếu chưa load_nsfw_models() thì tự load với default.
-#     """
-#     global _model_manager
-#     if _model_manager is None:
-#         _model_manager = NSFWModelManager()
-#     return _model_manager
+        self.dialog_log = QtWidgets.QTextEdit()
+        self.dialog_log.setReadOnly(True)
+        self.dialog_log.setMinimumHeight(120)
+        layout.addWidget(self.dialog_log)
 
+        btn_layout = QtWidgets.QHBoxLayout()
+        self.reload_btn = QtWidgets.QPushButton("Tải lại")
+        self.reload_btn.clicked.connect(self._load_modules)
+        btn_layout.addWidget(self.reload_btn)
+        btn_layout.addStretch(1)
 
-# def NSFW_check_image(image_path: str) -> tuple[bool, bool]:
-#     """
-#     Hàm đơn giản cho UI dùng:
-#     - True: NSFW
-#     - False: SFW
-#     (Model chỉ load lần đầu, lần sau dùng lại)
-#     """
-#     manager = get_nsfw_manager()
-#     is_unsafe, is_low_risk, _ = manager.check_image(image_path)
-#     return is_unsafe, is_low_risk
+        self.button_box = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        btn_layout.addWidget(self.button_box)
+        layout.addLayout(btn_layout)
 
+        QtCore.QTimer.singleShot(0, self._load_modules)
+
+    def _log(self, message: str):
+        self.log_messages.append(message)
+        self.dialog_log.append(message)
+
+    def _load_modules(self):
+        self.status_list.clear()
+        self.dialog_log.clear()
+        self.loaded_modules.clear()
+
+        candidates: list[ModelModuleBase] = [
+            NSFWImageDetectorModule(),
+            OnnxModule(),
+            NudenetModule(),
+        ]
+
+        for module in candidates:
+            item = QtWidgets.QListWidgetItem(module.name)
+            try:
+                module.load()
+            except ModelLoadError as exc:
+                item.setText(f"{module.name}: lỗi")
+                item.setForeground(QtGui.QColor("red"))
+                item.setToolTip(str(exc))
+                self._log(f"[FAIL] {module.name}: {exc}")
+            else:
+                item.setText(f"{module.name}: đã load")
+                item.setForeground(QtGui.QColor("green"))
+                self.loaded_modules.append(module)
+                self._log(f"[OK] {module.name} đã load thành công")
+            self.status_list.addItem(item)
+
+        self.button_box.button(QtWidgets.QDialogButtonBox.Ok).setEnabled(
+            bool(self.loaded_modules)
+        )
 
 
 class FolderFilterWorker(QObject):
@@ -111,8 +131,8 @@ class FolderFilterWorker(QObject):
     """
 
     progress_folder = pyqtSignal(int, int, str)  # current, total, folder_path
-    progress_percent = pyqtSignal(int)          # 0–100
-    file_copied = pyqtSignal(str)              # dst_path
+    progress_percent = pyqtSignal(int)  # 0–100
+    file_copied = pyqtSignal(str)  # dst_path
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
@@ -121,7 +141,7 @@ class FolderFilterWorker(QObject):
         self.folders = folders
         self.output_folder = output_folder
         self._cancelled = False
-        self._model_manager = model_manager or NSFWModelManager()
+        self._model_manager = model_manager
 
     @QtCore.pyqtSlot()
     def run(self):
@@ -139,7 +159,6 @@ class FolderFilterWorker(QObject):
 
                 self.progress_folder.emit(idx, total_folders, folder)
 
-                # Gom tất cả ảnh trong folder (đệ quy)
                 image_paths: List[str] = []
                 for root, _, files in os.walk(folder):
                     for f in files:
@@ -147,9 +166,7 @@ class FolderFilterWorker(QObject):
                         if is_image_file(full):
                             image_paths.append(full)
 
-                # Nếu không có ảnh thì skip
                 if not image_paths:
-                    # update % luôn cho folder này
                     percent = int(idx * 100 / total_folders)
                     self.progress_percent.emit(percent)
                     continue
@@ -158,18 +175,15 @@ class FolderFilterWorker(QObject):
                     if self._cancelled:
                         break
                     try:
-                        # NSFW_check_image: NSFW -> True, SFW -> False
-                        # is_unsafe, is_lowRisk = NSFW_check_image(img_path)
                         if self._model_manager is None:
                             raise RuntimeError("Model manager not initialized.")
                         is_unsafe, is_lowRisk, _ = self._model_manager.check_image(img_path)
                         dst_name = os.path.basename(img_path)
                         if is_lowRisk:
-                            # cảnh báo low-risk
                             print(f"Cảnh báo Low-Risk NSFW: {img_path}")
                             lowRisk_folder = os.path.join(os.path.dirname(self.output_folder), "low_risk")
                             os.makedirs(lowRisk_folder, exist_ok=True)
-                            
+
                             dst_path = os.path.join(lowRisk_folder, dst_name)
 
                             if os.path.exists(dst_path):
@@ -186,8 +200,6 @@ class FolderFilterWorker(QObject):
                             shutil.copy2(img_path, dst_path)
 
                         if not is_unsafe:
-                            # copy sang output folder.
-                            # giữ tên file, nếu trùng thì thêm số đuôi
                             dst_path = os.path.join(self.output_folder, dst_name)
 
                             if os.path.exists(dst_path):
@@ -204,7 +216,6 @@ class FolderFilterWorker(QObject):
                             shutil.copy2(img_path, dst_path)
                             self.file_copied.emit(dst_path)
                     except Exception as e:
-                        # không dừng toàn bộ, chỉ báo lỗi
                         self.error.emit(f"Lỗi khi xử lý ảnh {img_path}: {e}")
 
                 percent = int(idx * 100 / total_folders)
@@ -220,7 +231,7 @@ class FolderFilterWorker(QObject):
 
 
 class NSFWFilterWindow(QtWidgets.QMainWindow):
-    def __init__(self):
+    def __init__(self, model_modules: Sequence[ModelModuleBase], initial_logs: Sequence[str]):
         super().__init__()
         self.setWindowTitle("SFW Image Filter - PyQt5")
         self.resize(1280, 720)
@@ -231,8 +242,11 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         self._worker_thread: QThread | None = None
         self._worker: FolderFilterWorker | None = None
         self.icon_size = 120
+        self.model_manager = NSFWModelManager(model_modules)
 
         self._setup_ui()
+        for log_line in initial_logs:
+            self._log_message(log_line)
 
     # ---------- UI setup ----------
 
@@ -248,7 +262,6 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         self.splitter.setOrientation(Qt.Horizontal)
         main_layout.addWidget(self.splitter, 1)
 
-        # left / middle / right
         self.splitter.addWidget(self._build_left_panel())
         self.splitter.addWidget(self._build_middle_panel())
         self.splitter.addWidget(self._build_right_panel())
@@ -257,7 +270,6 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 3)
 
-        # progress bar bottom
         progress_container = QtWidgets.QWidget()
         progress_layout = QtWidgets.QHBoxLayout(progress_container)
         progress_layout.setContentsMargins(0, 0, 0, 0)
@@ -307,8 +319,7 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         self.folder_tree.setRootIsDecorated(True)
         self.folder_tree.itemChanged.connect(self._on_folder_item_changed)
 
-        helper = QtWidgets.QLabel("Tick vào folder muốn xử lý.\n"
-                                  "Folder cha có thể bật/tắt toàn bộ con.")
+        helper = QtWidgets.QLabel("Tick vào folder muốn xử lý.\n" "Folder cha có thể bật/tắt toàn bộ con.")
         helper.setStyleSheet("color: #666; font-size: 11px;")
 
         layout.addLayout(btn_layout)
@@ -336,10 +347,27 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
 
     def _build_right_panel(self) -> QtWidgets.QWidget:
         group = QtWidgets.QGroupBox("Output & Kết quả")
-        layout = QtWidgets.QVBoxLayout(group)
+        wrapper_layout = QtWidgets.QVBoxLayout(group)
+        wrapper_layout.setSpacing(10)
+
+        tabs = QtWidgets.QTabWidget()
+        tabs.addTab(self._build_execution_tab(), "Thực thi")
+        tabs.addTab(self._build_log_tab(), "Log")
+
+        wrapper_layout.addWidget(tabs)
+        return group
+
+    def _build_execution_tab(self) -> QtWidgets.QWidget:
+        page = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(page)
         layout.setSpacing(10)
 
-        # Output folder selector
+        model_box = QtWidgets.QGroupBox("Model đã load")
+        model_layout = QtWidgets.QVBoxLayout(model_box)
+        self.model_list = QtWidgets.QListWidget()
+        self.model_list.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        model_layout.addWidget(self.model_list)
+
         out_layout = QtWidgets.QHBoxLayout()
         lbl = QtWidgets.QLabel("Folder output:")
         self.output_edit = QtWidgets.QLineEdit()
@@ -351,12 +379,10 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         out_layout.addWidget(self.output_edit, 1)
         out_layout.addWidget(self.output_button)
 
-        # Run button
         self.run_button = QtWidgets.QPushButton("Run lọc SFW")
         self.run_button.setStyleSheet("font-size: 14px; font-weight: bold; padding: 6px 12px;")
         self.run_button.clicked.connect(self._start_filter)
 
-        # Result list
         result_label = QtWidgets.QLabel("Ảnh đã copy vào folder output:")
         result_label.setStyleSheet("font-weight: bold;")
 
@@ -371,13 +397,23 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         btn_delete.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_TrashIcon))
         btn_delete.clicked.connect(self._handle_delete_selected_results)
 
+        layout.addWidget(model_box)
         layout.addLayout(out_layout)
         layout.addWidget(self.run_button, 0, alignment=Qt.AlignRight)
         layout.addWidget(result_label)
         layout.addWidget(self.result_list, 1)
         layout.addWidget(btn_delete, 0, alignment=Qt.AlignRight)
 
-        return group
+        return page
+
+    def _build_log_tab(self) -> QtWidgets.QWidget:
+        page = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(page)
+        layout.setContentsMargins(4, 4, 4, 4)
+        self.log_text = QtWidgets.QTextEdit()
+        self.log_text.setReadOnly(True)
+        layout.addWidget(self.log_text, 1)
+        return page
 
     # ---------- Folder tree / selection logic ----------
 
@@ -391,7 +427,6 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
 
         self.last_open_dir = folder
 
-        # Nếu folder đã tồn tại trong tree thì bỏ
         for i in range(self.folder_tree.topLevelItemCount()):
             it = self.folder_tree.topLevelItem(i)
             if it.data(0, Qt.UserRole) == folder:
@@ -402,7 +437,6 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         root_item.setFlags(root_item.flags() | Qt.ItemIsUserCheckable)
         root_item.setCheckState(0, Qt.Unchecked)
 
-        # Thêm subfolder 1 level
         try:
             for name in sorted(os.listdir(folder)):
                 sub_path = os.path.join(folder, name)
@@ -430,15 +464,12 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
 
         state = item.checkState(0)
         self.folder_tree.blockSignals(True)
-        # Nếu là root -> áp cho con
         try:
             if item.parent() is None:
-                # Nếu là root: áp trạng thái cho tất cả con
                 for i in range(item.childCount()):
                     child = item.child(i)
                     child.setCheckState(0, state)
             else:
-                # Nếu là child: cập nhật lại parent nhưng CHỈ 2 trạng thái
                 parent = item.parent()
                 all_checked = True
                 for i in range(parent.childCount()):
@@ -468,7 +499,6 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         for i in range(self.folder_tree.topLevelItemCount()):
             collect_item(self.folder_tree.topLevelItem(i))
 
-        # bỏ trùng
         unique = []
         seen = set()
         for p in paths:
@@ -501,7 +531,6 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         if custom:
             return custom
 
-        # default: nếu có ít nhất 1 folder nguồn -> tạo "sfw_output" trong folder cha đầu tiên
         selected = self._iter_checked_folders()
         if not selected:
             return None
@@ -510,49 +539,39 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         default_out = os.path.join(base, "sfw_output")
         return default_out
 
+    def _populate_model_list(self):
+        self.model_list.clear()
+        for module in self.model_manager.modules:
+            item = QtWidgets.QListWidgetItem(module.name)
+            item.setForeground(QtGui.QColor("green"))
+            self.model_list.addItem(item)
+
     def _start_filter(self):
         if self._worker_thread is not None:
-            QtWidgets.QMessageBox.warning(self, "Đang chạy",
-                                          "Quá trình lọc hiện đang chạy, vui lòng đợi xong.")
+            QtWidgets.QMessageBox.warning(self, "Đang chạy", "Quá trình lọc hiện đang chạy, vui lòng đợi xong.")
             return
 
         folders = self._iter_checked_folders()
         if not folders:
-            QtWidgets.QMessageBox.warning(self, "Thiếu dữ liệu",
-                                          "Hãy chọn ít nhất 1 folder ở panel bên trái.")
+            QtWidgets.QMessageBox.warning(self, "Thiếu dữ liệu", "Hãy chọn ít nhất 1 folder ở panel bên trái.")
             return
 
         out_folder = self._get_effective_output_folder()
         if not out_folder:
-            QtWidgets.QMessageBox.warning(self, "Thiếu output",
-                                          "Không xác định được folder output.")
-            return
-        
-        try:
-            self.model = NSFWModelManager()  # hoặc path bạn muốn
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(
-                self,
-                "Lỗi load model",
-                f"Không load được model NSFW:\n{e}"
-            )
+            QtWidgets.QMessageBox.warning(self, "Thiếu output", "Không xác định được folder output.")
             return
 
-        # reset kết quả
         self.result_list.clear()
 
-        # hiển thị progress
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("Tiến độ: 0% (0/{})".format(len(folders)))
         self.progress_label.setText(f"Output: {out_folder}")
         self.progress_container.setVisible(True)
 
-        # disable nút run
         self.run_button.setEnabled(False)
 
-        # tạo thread + worker
         self._worker_thread = QThread(self)
-        self._worker = FolderFilterWorker(folders, out_folder, self, model_manager=self.model)
+        self._worker = FolderFilterWorker(folders, out_folder, self, model_manager=self.model_manager)
         self._worker.moveToThread(self._worker_thread)
 
         self._worker_thread.started.connect(self._worker.run)
@@ -562,7 +581,6 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         self._worker.file_copied.connect(self._on_worker_file_copied)
         self._worker.error.connect(self._on_worker_error)
 
-        # dọn dẹp
         self._worker.finished.connect(self._worker_thread.quit)
         self._worker.finished.connect(self._worker.deleteLater)
         self._worker_thread.finished.connect(self._worker_thread.deleteLater)
@@ -586,9 +604,12 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         item.setData(Qt.UserRole, path)
         self.result_list.addItem(item)
 
+    def _log_message(self, msg: str):
+        self.log_text.append(msg)
+        print(msg)
+
     def _on_worker_error(self, msg: str):
-        # Có thể log ra console, hoặc show message box nhẹ
-        print("Worker error:", msg)
+        self._log_message(f"Worker error: {msg}")
 
     def _on_worker_finished(self):
         self.run_button.setEnabled(True)
@@ -617,20 +638,18 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
                 try:
                     os.remove(path)
                 except Exception as e:
-                    print("Lỗi xóa file:", path, e)
+                    self._log_message(f"Lỗi xóa file {path}: {e}")
             row = self.result_list.row(item)
             self.result_list.takeItem(row)
 
     # ---------- Close & settings ----------
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
-        # Lưu last_open_dir
         if self.last_open_dir and os.path.exists(self.last_open_dir):
             self.settings.setValue("last_open_dir", self.last_open_dir)
         else:
             self.settings.setValue("last_open_dir", "")
 
-        # Nếu worker đang chạy thì cho user lựa chọn
         if self._worker_thread and self._worker_thread.isRunning():
             answer = QtWidgets.QMessageBox.question(
                 self,
@@ -656,14 +675,22 @@ def main():
     QtWidgets.QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     app = QtWidgets.QApplication(sys.argv)
     try:
-        # nếu có file theme *.qss giống project IG thì dùng
         if os.path.exists("MacOS.qss"):
             with open("MacOS.qss", "r", encoding="utf-8") as f:
                 app.setStyleSheet(f.read())
     except Exception:
         pass
 
-    w = NSFWFilterWindow()
+    loader = ModelLoaderDialog()
+    if loader.exec_() != QtWidgets.QDialog.Accepted:
+        sys.exit(0)
+
+    if not loader.loaded_modules:
+        QtWidgets.QMessageBox.critical(None, "Lỗi", "Không load được bất kỳ module model nào.")
+        sys.exit(1)
+
+    w = NSFWFilterWindow(loader.loaded_modules, loader.log_messages)
+    w._populate_model_list()
     w.show()
     sys.exit(app.exec_())
 
