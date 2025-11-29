@@ -6,18 +6,41 @@ from typing import List
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QThread
 
-import cv2
 import numpy as np
-# from nudenet import NudeDetector
-
-# import onnxruntime as ort
 from PIL import Image
-# import tensorflow.lite as tflite
+# try:
+#     from nsfw_image_detector import NSFWDetector
+# except ImportError:
+#     # Install nfsw_image_detector via pip if not found
+#     is_success = os.system(f"{sys.executable} -m pip install nsfw-image-detector")
+#     if not is_success:
+#         print("Module 'nsfw_image_detector' not found. Please install it to use NSFW detection. pip install nsfw-image-detector")
+#         sys.exit(1)
+#     else:
+#         from nsfw_image_detector import NSFWDetector
+from nsfw_image_detector import NSFWDetector
 
-# import hàm check NSFW từ file hiện có
-# đảm bảo file checkNFSW.py nằm cùng folder với file UI này
-# from checkNFSW import NSFW_check_image  # type: ignore
-# from checkNFSW import NSFW_check_image, load_nsfw_models
+class NSFWImageDetector:
+    def __init__(self):
+        self.detector = NSFWDetector()
+
+    def is_nsfw(self, image_path: str) -> bool:
+        image = Image.open(image_path)
+        return self.detector.is_nsfw(image)
+
+    def predict_proba(self, image_path: str) -> dict:
+        image = Image.open(image_path)
+        return self.detector.predict_proba(image)
+    
+    def check_image(self, image_path: str):
+        proba_dict = self.predict_proba(image_path)[0]
+        HighRisk_Proba = proba_dict["high"]
+        MediumRisk_Proba = proba_dict["medium"]
+        LowRisk_Proba = proba_dict["low"]
+
+        is_unsafe = HighRisk_Proba > 0.7 and MediumRisk_Proba > 0.6 and LowRisk_Proba > 0.5
+        is_low_risk = LowRisk_Proba > 0.9
+        return is_unsafe, is_low_risk, proba_dict
 
 
 IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"}
@@ -29,237 +52,53 @@ def is_image_file(path: str) -> bool:
     ext = os.path.splitext(path)[1].lower()
     return ext in IMG_EXTENSIONS
 
-# Option 1: NudeNet Classifier
-# class NudeNetChecker:
-#     def __init__(self):
-#         self.detector = NudeDetector()
-        
-#         self.dict_thresholds = {
-#             "FEMALE_GENITALIA_COVERED": 0.4,
-#             "FACE_FEMALE": 0.9,
-#             "BUTTOCKS_EXPOSED": 0.3,
-#             "FEMALE_BREAST_EXPOSED": 0.9,
-#             "FEMALE_GENITALIA_EXPOSED": 0.6,
-#             "MALE_BREAST_EXPOSED": 0.9,
-#             "ANUS_EXPOSED": 0.4,
-#             "FEET_EXPOSED": 0.8,
-#             "BELLY_COVERED": 0.9,
-#             "FEET_COVERED": 0.9,
-#             "ARMPITS_COVERED": 0.9,
-#             "ARMPITS_EXPOSED": 0.8,
-#             "FACE_MALE": 0.9,
-#             "BELLY_EXPOSED": 0.8,
-#             "MALE_GENITALIA_EXPOSED": 0.4,
-#             "ANUS_COVERED": 0.9,
-#             "FEMALE_BREAST_COVERED": 0.9,
-#             "BUTTOCKS_COVERED": 0.5,
-#         }
-
-#     def detect(self, image_path):
-#         """
-#         Trả về danh sách các vùng nhạy cảm và điểm số vi phạm.
-#         """
-#         return self.detector.detect(image_path)
-    
-#     def is_unsafe(self, image_path, threshold=0.7):
-#         """
-#         Kiểm tra xem ảnh có vùng nhạy cảm đáng kể không (ví dụ score > 0.7).
-#         Nếu có, return True.
-#         """
-#         detections = self.detect(image_path)
-#         for region in detections:
-#             region_class = region['class']
-#             region_threshold = self.dict_thresholds.get(region_class, threshold)
-#             region_score = region['score']
-#             #
-#             print(region_class, region_score, region_threshold)
-#             if region_score >= region_threshold:
-#                 return True
-#         return False
-
-# Option 2: Rule-based skin exposure checker (OpenCV)
-class SkinRatioChecker:
-    def __init__(self, lower_thresh=(0, 133, 77), upper_thresh=(255, 173, 127)):
-        self.lower_thresh = np.array(lower_thresh, dtype="uint8")
-        self.upper_thresh = np.array(upper_thresh, dtype="uint8")
-
-    def compute_skin_ratio(self, image_path):
-        image = cv2.imread(image_path)
-        if image is None:
-            raise ValueError("Không thể đọc ảnh: " + image_path)
-        image_ycrcb = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
-        skin_mask = cv2.inRange(image_ycrcb, self.lower_thresh, self.upper_thresh)
-        skin_ratio = np.count_nonzero(skin_mask) / skin_mask.size
-        return skin_ratio
-
-# Option 3: NSFW Classifier via ONNX
-# class ONNXNSFWChecker:
-#     def __init__(self, model_path):
-#         if not os.path.exists(model_path):
-#             raise FileNotFoundError(f"Model {model_path} not found.")
-#         self.session = ort.InferenceSession(model_path)
-#         self.input_name = self.session.get_inputs()[0].name
-
-#     def preprocess(self, image_path):
-#         image = Image.open(image_path).convert('RGB').resize((224, 224))
-#         image_np = np.array(image).astype('float32') / 255.0
-#         image_np = image_np.transpose(2, 0, 1)  # HWC to CHW
-#         return np.expand_dims(image_np, axis=0)
-
-#     def predict(self, image_path):
-#         input_tensor = self.preprocess(image_path)
-#         outputs = self.session.run(None, {self.input_name: input_tensor})
-#         nsfw_score = float(outputs[0][0][1])  # Index 1 = 'nsfw' class
-#         return {'nsfw_score': nsfw_score, 'sfw_score': 1 - nsfw_score}
-    
-# Option 4: NSFW TFLite
-# class NSFWTFLiteChecker:
-#     def __init__(self, model_path):
-        
-#         if not os.path.exists(model_path):
-#             raise FileNotFoundError(f"Model {model_path} not found.")
-#         self.interpreter = tflite.Interpreter(model_path=model_path)
-#         self.interpreter.allocate_tensors()
-#         self.input_details = self.interpreter.get_input_details()
-#         self.output_details = self.interpreter.get_output_details()
-#         self.input_size = (224, 224)
-#         self.labels = ["Drawing", "Hentai", "Neutral", "Porn", "Sexy"]
-#         self.dict_thresholds = {
-#             "Drawing": 1,
-#             "Hentai": 0.6,
-#             "Neutral": 1,
-#             "Porn": 0.6,
-#             "Sexy": 0.5,
-#         }
-
-#     def preprocess(self, image_path):
-#         image = Image.open(image_path).convert('RGB').resize(self.input_size)
-#         img_np = np.array(image).astype('float32') / 255.0
-#         img_np = np.expand_dims(img_np, axis=0)  # shape [1, 224, 224, 3]
-#         return img_np.astype(self.input_details[0]["dtype"])
-
-#     def predict(self, image_path):
-#         input_tensor = self.preprocess(image_path)
-#         self.interpreter.set_tensor(self.input_details[0]['index'], input_tensor)
-#         self.interpreter.invoke()
-#         output_data = self.interpreter.get_tensor(self.output_details[0]['index'])[0]
-#         scores = {label: round(float(score), 4) for label, score in zip(self.labels, output_data)}
-#         print(f"scores: {scores}")
-#         scores["max_class"] = max(scores, key=lambda k: scores[k])
-#         # nsfw_score = float(output_data[1])  # Index 1 = 'nsfw' class
-#         # print(f"NSFW score: {nsfw_score}, SFW score: {1 - nsfw_score}")
-#         return scores
-    
-#     def predict_unsafe(self, image_path):
-#         scores = self.predict(image_path)
-#         max_class = scores["max_class"]
-#         max_score = scores[max_class]
-#         threshold = self.dict_thresholds.get(max_class, 0.7)
-#         return max_score >= threshold
-
-
+def truncate_text(text, font, max_width):
+    metrics = QtGui.QFontMetrics(font)
+    return metrics.elidedText(text, Qt.ElideRight, max_width)
 
 class NSFWModelManager:
-    def __init__(self, tflite_model_path="saved_model.tflite",
-                 skin_ratio_thr: float = 0.5):
-        self.skin_ratio_thr = skin_ratio_thr
-
-        # NudeNet
-        # self.nude_checker = None
-        # if NudeDetector is not None:
-        #     try:
-        #         self.nude_checker = NudeNetChecker()
-        #     except Exception as e:
-        #         print("Không khởi tạo được NudeNetChecker:", e)
-
-        # Skin ratio (nhẹ, load luôn)
-        self.skin_checker = SkinRatioChecker()
-
-        # TFLite
-        # self.tflite_checker = None
-        # try:
-        #     self.tflite_checker = NSFWTFLiteChecker(tflite_model_path)
-        # except Exception as e:
-        #     print("Không khởi tạo được NSFWTFLiteChecker:", e)
+    def __init__(self):
+        self.detector = NSFWImageDetector()
+        pass
 
     def check_image(self, image_path: str):
-        """
-        Trả về:
-            is_unsafe: bool
-            details: dict chứa các kết quả con
-        """
-        # nudedet_is_unsafe = False
-        # if self.nude_checker is not None:
-        #     try:
-        #         nudedet_is_unsafe = self.nude_checker.is_unsafe(image_path)
-        #     except Exception as e:
-        #         print("Lỗi NudeNet:", e)
-
-        # Skin ratio
-        skin_ratio = 0.0
-        skin_is_unsafe = False
-        try:
-            skin_ratio = self.skin_checker.compute_skin_ratio(image_path)
-            skin_is_unsafe = skin_ratio >= self.skin_ratio_thr
-        except Exception as e:
-            print("Lỗi tính skin ratio:", e)
-
-        # TFLite
-        # tflite_is_unsafe = False
-        # if self.tflite_checker is not None:
-        #     try:
-        #         tflite_is_unsafe = self.tflite_checker.predict_unsafe(image_path)
-        #     except Exception as e:
-        #         print("Lỗi TFLite:", e)
-
-        # is_unsafe = nudedet_is_unsafe or skin_is_unsafe or tflite_is_unsafe
-        is_unsafe = skin_is_unsafe
-
-        return is_unsafe, {
-            # "nudedet_is_unsafe": nudedet_is_unsafe,
-            "skin_ratio": skin_ratio,
-            "skin_is_unsafe": skin_is_unsafe,
-            # "tflite_is_unsafe": tflite_is_unsafe,
-        }
+        is_unsafe, is_low_risk, proba_dict = self.detector.check_image(image_path)
+        return is_unsafe, is_low_risk, proba_dict
 
 
-# Singleton manager dùng chung
-_model_manager: NSFWModelManager | None = None
 
 
-def load_nsfw_models(tflite_model_path: str = "saved_model.tflite",
-                     skin_ratio_thr: float = 0.5) -> NSFWModelManager:
-    """
-    Gọi 1 lần ở đầu chương trình/UI để load model.
-    """
-    global _model_manager
-    _model_manager = NSFWModelManager(
-        tflite_model_path=tflite_model_path,
-        skin_ratio_thr=skin_ratio_thr,
-    )
-    return _model_manager
+# def load_nsfw_models() -> NSFWModelManager:
+#     """
+#     Gọi 1 lần ở đầu chương trình/UI để load model.
+#     """
+#     global _model_manager
+#     _model_manager = NSFWModelManager(
+        
+#     )
+#     return _model_manager
 
 
-def get_nsfw_manager() -> NSFWModelManager:
-    """
-    Lazy init: nếu chưa load_nsfw_models() thì tự load với default.
-    """
-    global _model_manager
-    if _model_manager is None:
-        _model_manager = NSFWModelManager()
-    return _model_manager
+# def get_nsfw_manager() -> NSFWModelManager:
+#     """
+#     Lazy init: nếu chưa load_nsfw_models() thì tự load với default.
+#     """
+#     global _model_manager
+#     if _model_manager is None:
+#         _model_manager = NSFWModelManager()
+#     return _model_manager
 
 
-def NSFW_check_image(image_path: str) -> bool:
-    """
-    Hàm đơn giản cho UI dùng:
-    - True: NSFW
-    - False: SFW
-    (Model chỉ load lần đầu, lần sau dùng lại)
-    """
-    manager = get_nsfw_manager()
-    is_unsafe, _ = manager.check_image(image_path)
-    return is_unsafe
+# def NSFW_check_image(image_path: str) -> tuple[bool, bool]:
+#     """
+#     Hàm đơn giản cho UI dùng:
+#     - True: NSFW
+#     - False: SFW
+#     (Model chỉ load lần đầu, lần sau dùng lại)
+#     """
+#     manager = get_nsfw_manager()
+#     is_unsafe, is_low_risk, _ = manager.check_image(image_path)
+#     return is_unsafe, is_low_risk
 
 
 
@@ -277,11 +116,12 @@ class FolderFilterWorker(QObject):
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, folders: List[str], output_folder: str, parent=None):
+    def __init__(self, folders: List[str], output_folder: str, parent=None, model_manager: NSFWModelManager | None = None):
         super().__init__(parent)
         self.folders = folders
         self.output_folder = output_folder
         self._cancelled = False
+        self._model_manager = model_manager or NSFWModelManager()
 
     @QtCore.pyqtSlot()
     def run(self):
@@ -319,11 +159,35 @@ class FolderFilterWorker(QObject):
                         break
                     try:
                         # NSFW_check_image: NSFW -> True, SFW -> False
-                        is_unsafe = NSFW_check_image(img_path)
+                        # is_unsafe, is_lowRisk = NSFW_check_image(img_path)
+                        if self._model_manager is None:
+                            raise RuntimeError("Model manager not initialized.")
+                        is_unsafe, is_lowRisk, _ = self._model_manager.check_image(img_path)
+                        dst_name = os.path.basename(img_path)
+                        if is_lowRisk:
+                            # cảnh báo low-risk
+                            print(f"Cảnh báo Low-Risk NSFW: {img_path}")
+                            lowRisk_folder = os.path.join(os.path.dirname(self.output_folder), "low_risk")
+                            os.makedirs(lowRisk_folder, exist_ok=True)
+                            
+                            dst_path = os.path.join(lowRisk_folder, dst_name)
+
+                            if os.path.exists(dst_path):
+                                base, ext = os.path.splitext(dst_name)
+                                k = 1
+                                while True:
+                                    new_name = f"{base}_{k}{ext}"
+                                    new_dst = os.path.join(lowRisk_folder, new_name)
+                                    if not os.path.exists(new_dst):
+                                        dst_path = new_dst
+                                        break
+                                    k += 1
+
+                            shutil.copy2(img_path, dst_path)
+
                         if not is_unsafe:
                             # copy sang output folder.
                             # giữ tên file, nếu trùng thì thêm số đuôi
-                            dst_name = os.path.basename(img_path)
                             dst_path = os.path.join(self.output_folder, dst_name)
 
                             if os.path.exists(dst_path):
@@ -366,6 +230,7 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
 
         self._worker_thread: QThread | None = None
         self._worker: FolderFilterWorker | None = None
+        self.icon_size = 120
 
         self._setup_ui()
 
@@ -497,7 +362,7 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
 
         self.result_list = QtWidgets.QListWidget()
         self.result_list.setViewMode(QtWidgets.QListView.IconMode)
-        self.result_list.setIconSize(QtCore.QSize(120, 120))
+        self.result_list.setIconSize(QtCore.QSize(self.icon_size, self.icon_size))
         self.result_list.setResizeMode(QtWidgets.QListView.Adjust)
         self.result_list.setMovement(QtWidgets.QListView.Static)
         self.result_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
@@ -664,7 +529,7 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
             return
         
         try:
-            load_nsfw_models("saved_model.tflite")  # hoặc path bạn muốn
+            self.model = NSFWModelManager()  # hoặc path bạn muốn
         except Exception as e:
             QtWidgets.QMessageBox.critical(
                 self,
@@ -687,7 +552,7 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
 
         # tạo thread + worker
         self._worker_thread = QThread(self)
-        self._worker = FolderFilterWorker(folders, out_folder)
+        self._worker = FolderFilterWorker(folders, out_folder, self, model_manager=self.model)
         self._worker.moveToThread(self._worker_thread)
 
         self._worker_thread.started.connect(self._worker.run)
@@ -712,10 +577,12 @@ class NSFWFilterWindow(QtWidgets.QMainWindow):
         self.progress_bar.setValue(percent)
 
     def _on_worker_file_copied(self, path: str):
-        item = QtWidgets.QListWidgetItem(os.path.basename(path))
+        font = self.result_list.font()
+        item = QtWidgets.QListWidgetItem()
         pixmap = QtGui.QPixmap(path)
         if not pixmap.isNull():
             item.setIcon(QtGui.QIcon(pixmap))
+            item.setText(truncate_text(os.path.basename(path), font, self.icon_size))
         item.setData(Qt.UserRole, path)
         self.result_list.addItem(item)
 

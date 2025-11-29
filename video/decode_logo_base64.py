@@ -11,7 +11,7 @@ iVBORw0KGgoAAAANSUhEUgAABgAAAAQACAYAAAAncZJCAAAAAXNSR0IB2cksfwAAAAlwSFlzAAAOxAAA
 
 def get_default_logo_path():
     """Giải mã LOGO_BASE64 thành file tạm để sử dụng."""
-    temp_path = "default_logo.png"
+    temp_path = "LOGO_LH.png"
     if not os.path.exists(temp_path):
         img_data = base64.b64decode(LOGO_BASE64)
         with open(temp_path, "wb") as f:
