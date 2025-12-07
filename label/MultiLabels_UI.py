@@ -61,7 +61,7 @@ class FlowLayout(QtWidgets.QLayout):
     def takeAt(self, index):
         if 0 <= index < len(self.item_list):
             item = self.item_list.pop(index)
-            self.invalidate()
+            #self.invalidate()
             try:
                 self.activate()
             except AttributeError:
