@@ -50,11 +50,19 @@ def apply_image_transform(clip, func):
             return clip.image_transform(lambda frame: func(frame))
     return clip
 
+def apply_vfx(clip, effect, **kwargs):
+    if hasattr(clip, "fx"):
+        return clip.fx(effect, **kwargs)
+    try:
+        return effect(clip, **kwargs)
+    except TypeError:
+        return effect(clip, **kwargs)
+
 def crossfade_in_clip(clip, duration: float):
     if hasattr(clip, "crossfadein"):
         return clip.crossfadein(duration)
     try:
-        return clip.fx(vfx.crossfadein, duration)
+        return vfx.crossfadein(clip, duration)
     except Exception:
         return clip
 
@@ -129,8 +137,14 @@ def fit_clip_with_blurred_bg(vclip: VideoFileClip, target_size=TARGET_SIZE):
     # Background: fill theo khung rồi blur
     scale_bg = max(tw / w, th / h)
     bg_w, bg_h = int(w * scale_bg), int(h * scale_bg)
-    bg = (resize_clip(vclip, (bg_w, bg_h))
-          .fx(vfx.crop, width=tw, height=th, x_center=bg_w/2, y_center=bg_h/2))
+    bg = apply_vfx(
+        resize_clip(vclip, (bg_w, bg_h)),
+        vfx.crop,
+        width=tw,
+        height=th,
+        x_center=bg_w / 2,
+        y_center=bg_h / 2,
+    )
     bg = apply_image_transform(bg, lambda f: gaussian_blur_frame(f, ksize=101))
 
     # Foreground: fit và đặt giữa
