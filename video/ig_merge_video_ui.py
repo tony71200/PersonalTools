@@ -13,7 +13,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 try:
-    from moviepy.editor import VideoFileClip, CompositeVideoClip, concatenate_videoclips
+    from moviepy import VideoFileClip, CompositeVideoClip, concatenate_videoclips
 except Exception:
     try:
         from moviepy.video.io.VideoFileClip import VideoFileClip
@@ -30,7 +30,10 @@ from ig_merge_video_cmd import (
     TRANSITION_RANGE,
     apply_random_kenburns,
     build_logo_clip,
+    crossfade_in_clip,
     fit_clip_with_blurred_bg,
+    set_clip_duration,
+    set_clip_position,
 )
 
 try:
@@ -536,7 +539,7 @@ def merge_videos(
         merged_clips = [clips[0]]
         for idx, clip in enumerate(clips[1:], start=1):
             ensure_not_cancelled()
-            merged_clips.append(clip.crossfadein(transitions[idx - 1]))
+            merged_clips.append(crossfade_in_clip(clip, transitions[idx - 1]))
 
         slideshow = concatenate_videoclips(merged_clips, method="compose")
         ensure_not_cancelled()
@@ -546,9 +549,12 @@ def merge_videos(
         x_off, y_off, _, h_fg = positions[0]
         logo_h = 150
         logo_clip = build_logo_clip(logo_path, logo_h, duration=slideshow.duration)
-        logo_clip = logo_clip.set_position((x_off + 10, y_off + h_fg - logo_h - 10))
+        logo_clip = set_clip_position(logo_clip, (x_off + 10, y_off + h_fg - logo_h - 10))
 
-        final_clip = CompositeVideoClip([slideshow, logo_clip], size=TARGET_SIZE).set_duration(slideshow.duration)
+        final_clip = set_clip_duration(
+            CompositeVideoClip([slideshow, logo_clip], size=TARGET_SIZE),
+            slideshow.duration,
+        )
 
         status("Đang xuất video...")
         ensure_not_cancelled()

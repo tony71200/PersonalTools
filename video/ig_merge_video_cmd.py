@@ -1,7 +1,7 @@
 # Requirements:
 # opencv-python==4.8.0
 # numpy==1.26.4
-# moviepy==1.0.3
+# moviepy==2.2.1
 # pillow==10.3.0
 
 import os
@@ -12,7 +12,7 @@ import base64
 import random
 import numpy as np
 from tkinter import Tk, filedialog
-from moviepy.editor import (
+from moviepy import (
     VideoFileClip, ImageClip, CompositeVideoClip,
     concatenate_videoclips, vfx
 )
@@ -23,6 +23,40 @@ TARGET_SIZE = (1080, 1920)  # video dọc 9:16
 TRANSITION_RANGE = (0.4, 0.8)  # giây (min, max)
 KENBURNS_MAX_ZOOM = 0.06       # 6% cho video (nhẹ nhàng)
 KENBURNS_MAX_PAN  = 80         # px
+
+# ================== MOVIEPY 2.x COMPAT ==================
+def resize_clip(clip, *args, **kwargs):
+    if hasattr(clip, "resized"):
+        return clip.resized(*args, **kwargs)
+    return clip.resize(*args, **kwargs)
+
+def set_clip_duration(clip, duration: float):
+    if hasattr(clip, "with_duration"):
+        return clip.with_duration(duration)
+    return clip.set_duration(duration)
+
+def set_clip_position(clip, position):
+    if hasattr(clip, "with_position"):
+        return clip.with_position(position)
+    return clip.set_position(position)
+
+def apply_image_transform(clip, func):
+    if hasattr(clip, "fl_image"):
+        return clip.fl_image(func)
+    if hasattr(clip, "image_transform"):
+        try:
+            return clip.image_transform(func)
+        except TypeError:
+            return clip.image_transform(lambda frame: func(frame))
+    return clip
+
+def crossfade_in_clip(clip, duration: float):
+    if hasattr(clip, "crossfadein"):
+        return clip.crossfadein(duration)
+    try:
+        return clip.fx(vfx.crossfadein, duration)
+    except Exception:
+        return clip
 
 
 # === LOGO mặc định (base64) ===
@@ -64,10 +98,10 @@ def logo_clip_from_base64(height: int, duration: float) -> ImageClip:
     """Decode LOGO_BASE64 -> ImageClip (không cần file tạm)."""
     img = Image.open(io.BytesIO(base64.b64decode(LOGO_BASE64))).convert("RGBA")
     arr = np.array(img)
-    return ImageClip(arr).resize(height=height).set_duration(duration)
+    return set_clip_duration(resize_clip(ImageClip(arr), height=height), duration)
 
 def logo_clip_from_file(path: str, height: int, duration: float) -> ImageClip:
-    return ImageClip(path).resize(height=height).set_duration(duration)
+    return set_clip_duration(resize_clip(ImageClip(path), height=height), duration)
 
 def gaussian_blur_frame(frame: np.ndarray, ksize: int = 51) -> np.ndarray:
     """Blur 1 frame (BGR->RGB đồng nhất với MoviePy là RGB)."""
@@ -95,15 +129,14 @@ def fit_clip_with_blurred_bg(vclip: VideoFileClip, target_size=TARGET_SIZE):
     # Background: fill theo khung rồi blur
     scale_bg = max(tw / w, th / h)
     bg_w, bg_h = int(w * scale_bg), int(h * scale_bg)
-    bg = (vclip
-          .resize((bg_w, bg_h))
-          .fx(vfx.crop, width=tw, height=th, x_center=bg_w/2, y_center=bg_h/2)
-          .fl_image(lambda f: gaussian_blur_frame(f, ksize=101)))
+    bg = (resize_clip(vclip, (bg_w, bg_h))
+          .fx(vfx.crop, width=tw, height=th, x_center=bg_w/2, y_center=bg_h/2))
+    bg = apply_image_transform(bg, lambda f: gaussian_blur_frame(f, ksize=101))
 
     # Foreground: fit và đặt giữa
-    fg = vclip.resize((new_w, new_h)).set_position((x_off, y_off))
+    fg = set_clip_position(resize_clip(vclip, (new_w, new_h)), (x_off, y_off))
 
-    comp = CompositeVideoClip([bg, fg], size=(tw, th)).set_duration(vclip.duration)
+    comp = set_clip_duration(CompositeVideoClip([bg, fg], size=(tw, th)), vclip.duration)
     return comp, (x_off, y_off, new_w, new_h)
 
 def apply_random_kenburns(clip: CompositeVideoClip,
@@ -124,19 +157,19 @@ def apply_random_kenburns(clip: CompositeVideoClip,
 
     # zoom
     if mode in ["zoom_in", "zoom_pan_lr", "zoom_pan_rl", "zoom_pan_tb", "zoom_pan_bt"]:
-        clip = clip.resize(lambda t: 1.0 + max_zoom * (t / d))
+        clip = resize_clip(clip, lambda t: 1.0 + max_zoom * (t / d))
     elif mode == "zoom_out":
-        clip = clip.resize(lambda t: 1.0 + max_zoom * (1.0 - t / d))
+        clip = resize_clip(clip, lambda t: 1.0 + max_zoom * (1.0 - t / d))
 
     # pan
     if mode in ["pan_lr", "zoom_pan_lr"]:
-        clip = clip.set_position(lambda t: (-max_pan * (t / d), "center"))
+        clip = set_clip_position(clip, lambda t: (-max_pan * (t / d), "center"))
     elif mode in ["pan_rl", "zoom_pan_rl"]:
-        clip = clip.set_position(lambda t: (-max_pan * (1.0 - t / d), "center"))
+        clip = set_clip_position(clip, lambda t: (-max_pan * (1.0 - t / d), "center"))
     elif mode in ["pan_tb", "zoom_pan_tb"]:
-        clip = clip.set_position(lambda t: ("center", -max_pan * (t / d)))
+        clip = set_clip_position(clip, lambda t: ("center", -max_pan * (t / d)))
     elif mode in ["pan_bt", "zoom_pan_bt"]:
-        clip = clip.set_position(lambda t: ("center", -max_pan * (1.0 - t / d)))
+        clip = set_clip_position(clip, lambda t: ("center", -max_pan * (1.0 - t / d)))
 
     return clip
 
@@ -195,7 +228,7 @@ def main():
     for idx, c in enumerate(clips[1:], start=1):
         t = transitions[idx-1]
         # crossfadein chồng cả hình và (thường) audio do các clip overlap theo thời gian
-        out_clips.append(c.crossfadein(t))
+        out_clips.append(crossfade_in_clip(c, t))
 
     slideshow = concatenate_videoclips(out_clips, method="compose")
 
@@ -203,9 +236,9 @@ def main():
     x_off, y_off, _, h_fg = positions[0]
     logo_h = 450 
     logo = build_logo_clip(logo_path, logo_h, duration=slideshow.duration)
-    logo = logo.set_position((x_off + 10, y_off + h_fg - logo_h - 10))
+    logo = set_clip_position(logo, (x_off + 10, y_off + h_fg - logo_h - 10))
 
-    final = CompositeVideoClip([slideshow, logo], size=TARGET_SIZE).set_duration(slideshow.duration)
+    final = set_clip_duration(CompositeVideoClip([slideshow, logo], size=TARGET_SIZE), slideshow.duration)
 
     # Xuất file: libx264 + aac, giữ audio gốc
     # audio sẽ là mix crossfade của các audio nguồn do đã overlap clip
