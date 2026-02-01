@@ -30,6 +30,7 @@ PersonalTools/
     ├── __init__.py — Đánh dấu thư mục video là gói Python.
     ├── decode_logo_base64.py — Giải mã logo mặc định từ chuỗi base64.
     ├── default_logo.png — Logo mẫu sử dụng khi ghép video.
+    ├── ig_merge_video_core.py — thư viên ghép video. cmd và UI sẽ sử dụng từ thư viện này
     ├── ig_merge_video_cmd.py — Logic ghép video Instagram ở dạng dòng lệnh.
     ├── ig_merge_video_ui.py — Giao diện PyQt5 để xem trước và ghép video.
     ├── make_video_timelape.py — Tạo video bằng commandline có set time có ảnh (không logo).
