@@ -892,108 +892,108 @@ class MoviePyMerger:
                     pass
 
 
-def make_from_images(
-    self,
-    image_paths: Sequence[str],
-    output_path: str,
-    total_duration_s: float,
-    logo_path: Optional[str],
-    should_cancel: Optional[CancelFn],
-    status: Optional[StatusFn],
-    min_transition_s: Optional[float] = None,
-    max_transition_s: Optional[float] = None,
-) -> Tuple[float, str, str]:
-    """Fallback slideshow builder using MoviePy.
+    def make_from_images(
+        self,
+        image_paths: Sequence[str],
+        output_path: str,
+        total_duration_s: float,
+        logo_path: Optional[str],
+        should_cancel: Optional[CancelFn],
+        status: Optional[StatusFn],
+        min_transition_s: Optional[float] = None,
+        max_transition_s: Optional[float] = None,
+    ) -> Tuple[float, str, str]:
+        """Fallback slideshow builder using MoviePy.
 
-    - Forces codec to libx264 to avoid GPU driver issues.
-    - Uses random transition durations within range (default: opts.transition_range).
-    - Audio is always OFF.
-    """
-    if not image_paths:
-        raise ValueError("Không có hình ảnh.")
+        - Forces codec to libx264 to avoid GPU driver issues.
+        - Uses random transition durations within range (default: opts.transition_range).
+        - Audio is always OFF.
+        """
+        if not image_paths:
+            raise ValueError("Không có hình ảnh.")
 
-    tmin, tmax = self.opts.transition_range
-    if min_transition_s is not None:
-        tmin = float(min_transition_s)
-    if max_transition_s is not None:
-        tmax = float(max_transition_s)
-    tmin = max(0.0, tmin)
-    tmax = max(tmin, tmax)
+        tmin, tmax = self.opts.transition_range
+        if min_transition_s is not None:
+            tmin = float(min_transition_s)
+        if max_transition_s is not None:
+            tmax = float(max_transition_s)
+        tmin = max(0.0, tmin)
+        tmax = max(tmin, tmax)
 
-    total_duration_s = float(max(0.1, total_duration_s))
-    n = len(image_paths)
-    transitions = [random.uniform(tmin, tmax) for _ in range(max(0, n - 1))]
-    total_overlap = float(sum(transitions))
-    per_img = (total_duration_s + total_overlap) / max(1, n)
+        total_duration_s = float(max(0.1, total_duration_s))
+        n = len(image_paths)
+        transitions = [random.uniform(tmin, tmax) for _ in range(max(0, n - 1))]
+        total_overlap = float(sum(transitions))
+        per_img = (total_duration_s + total_overlap) / max(1, n)
 
-    safe_call_status(status, f"Backend: moviepy | Encoder: libx264 (forced) | Audio: OFF")
-    safe_call_status(status, f"Make from images (moviepy): n={n} total={total_duration_s:.2f}s per={per_img:.2f}s")
+        safe_call_status(status, f"Backend: moviepy | Encoder: libx264 (forced) | Audio: OFF")
+        safe_call_status(status, f"Make from images (moviepy): n={n} total={total_duration_s:.2f}s per={per_img:.2f}s")
 
-    processed: List[CompositeVideoClip] = []
-    clips_to_close: List[object] = []
+        processed: List[CompositeVideoClip] = []
+        clips_to_close: List[object] = []
 
-    try:
-        clips: List[CompositeVideoClip] = []
-        for p in image_paths:
-            if should_cancel and should_cancel():
-                raise RuntimeError("CANCELLED")
-            base = ImageClip(p).set_duration(per_img)
-            clips_to_close.append(base)
-            fitted, _pos = self.fit_clip_with_blurred_bg(base)
-            fitted = fitted.set_duration(per_img)
-            fitted = self.apply_random_kenburns(fitted)
-            processed.append(fitted)
-            clips.append(fitted)
+        try:
+            clips: List[CompositeVideoClip] = []
+            for p in image_paths:
+                if should_cancel and should_cancel():
+                    raise RuntimeError("CANCELLED")
+                base = ImageClip(p).set_duration(per_img)
+                clips_to_close.append(base)
+                fitted, _pos = self.fit_clip_with_blurred_bg(base)
+                fitted = fitted.set_duration(per_img)
+                fitted = self.apply_random_kenburns(fitted)
+                processed.append(fitted)
+                clips.append(fitted)
 
-        if not clips:
-            raise ValueError("Không có clip hợp lệ.")
+            if not clips:
+                raise ValueError("Không có clip hợp lệ.")
 
-        out = clips[0]
-        for i in range(1, len(clips)):
-            tr = transitions[i - 1] if i - 1 < len(transitions) else 0.0
-            if tr > 0:
-                clips[i] = clips[i].crossfadein(tr)
-                out = concatenate_videoclips([out, clips[i]], method="compose", padding=-tr)
-            else:
-                out = concatenate_videoclips([out, clips[i]], method="compose")
+            out = clips[0]
+            for i in range(1, len(clips)):
+                tr = transitions[i - 1] if i - 1 < len(transitions) else 0.0
+                if tr > 0:
+                    clips[i] = clips[i].crossfadein(tr)
+                    out = concatenate_videoclips([out, clips[i]], method="compose", padding=-tr)
+                else:
+                    out = concatenate_videoclips([out, clips[i]], method="compose")
 
-        # logo overlay (optional)
-        logo_file = LogoFactory.ensure_logo_file(logo_path)
-        if logo_file and os.path.isfile(logo_file):
-            try:
-                tw, th = self.opts.target_size
-                logo_h = int(min(tw, th) * 0.14)
-                margin = 30
-                logo = ImageClip(logo_file).set_duration(out.duration).resize(height=logo_h)
-                clips_to_close.append(logo)
-                logo = logo.set_position((margin, th - logo_h - margin))
-                out = CompositeVideoClip([out, logo], size=(tw, th)).set_duration(out.duration)
-            except Exception:
-                pass
+            # logo overlay (optional)
+            logo_file = LogoFactory.ensure_logo_file(logo_path)
+            if logo_file and os.path.isfile(logo_file):
+                try:
+                    tw, th = self.opts.target_size
+                    logo_h = int(min(tw, th) * 0.14)
+                    margin = 30
+                    logo = ImageClip(logo_file).set_duration(out.duration).resize(height=logo_h)
+                    clips_to_close.append(logo)
+                    logo = logo.set_position((margin, th - logo_h - margin))
+                    out = CompositeVideoClip([out, logo], size=(tw, th)).set_duration(out.duration)
+                except Exception:
+                    pass
 
-        started = time.time()
-        out.write_videofile(
-            output_path,
-            fps=int(self.opts.fps),
-            codec="libx264",
-            audio=False,
-            bitrate=self.opts.video_bitrate,
-            threads=self.opts.threads,
-            logger=None,
-        )
-        wall_s = max(0.0, time.time() - started)
-        return wall_s, "moviepy_write_videofile(codec=libx264)", ""
-    finally:
-        for c in processed:
-            try:
-                c.close()
-            except Exception:
-                pass
-        for c in clips_to_close:
-            try:
-                c.close()
-            except Exception:
-                pass
+            started = time.time()
+            out.write_videofile(
+                output_path,
+                fps=int(self.opts.fps),
+                codec="libx264",
+                audio=False,
+                bitrate=self.opts.video_bitrate,
+                threads=self.opts.threads,
+                logger=None,
+            )
+            wall_s = max(0.0, time.time() - started)
+            return wall_s, "moviepy_write_videofile(codec=libx264)", ""
+        finally:
+            for c in processed:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+            for c in clips_to_close:
+                try:
+                    c.close()
+                except Exception:
+                    pass
 
 
 class VideoMerger:
