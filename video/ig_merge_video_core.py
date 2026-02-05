@@ -116,6 +116,34 @@ class MergeOptions:
 
     backend: str = "fast_ffmpeg"  # "fast_ffmpeg" | "moviepy"
 
+@dataclass
+class ImageVideoOptions:
+    """Options for creating a vertical IG video from a folder of images.
+
+    The output duration is controlled by ``total_duration_s``. Crossfade overlaps are
+    accounted for so the final video length stays close to ``total_duration_s``:
+
+    total ~= sum(durations) - sum(transitions)
+    => per_image_duration = (total_duration_s + sum(transitions)) / n
+
+    Notes:
+    - Audio is always OFF for image-based videos.
+    - Ken Burns + transitions reuse the same ffmpeg filtergraph as video merge.
+    """
+
+    total_duration_s: float = 30.0
+    min_images: int = 7
+    duration_scale_trigger: float = 1.5
+    min_transition_s: Optional[float] = None
+    max_transition_s: Optional[float] = None
+    image_exts: Tuple[str, ...] = (".jpg", ".jpeg", ".png", ".webp")
+
+@dataclass
+class ImageMakeOptions:
+    fps: int = DEFAULT_FPS
+    total_duration: float = 30.0
+    output_size: Tuple[int, int] = (1080, 1920)
+    video_bitrate: str = "6000k"
 
 @dataclass(frozen=True)
 class MergeDebugInfo:
@@ -605,6 +633,124 @@ class FFmpegMerger:
                     pass
 
 
+
+    def make_from_images(
+        self,
+        image_paths: Sequence[str],
+        output_path: str,
+        total_duration_s: float,
+        logo_path: Optional[str],
+        should_cancel: Optional[CancelFn],
+        status: Optional[StatusFn],
+        min_transition_s: Optional[float] = None,
+        max_transition_s: Optional[float] = None,
+    ) -> Tuple[float, str, str]:
+        """Create a vertical IG video from still images using ffmpeg (fast).
+
+        - Each image becomes a looping video segment with Ken Burns.
+        - Segments are joined using xfade transitions (fade).
+        - Audio is always disabled.
+        """
+        if not image_paths:
+            raise ValueError("Không có hình ảnh.")
+
+        fps = self.opts.fps
+        n = len(image_paths)
+
+        tmin, tmax = self.opts.transition_range
+        if min_transition_s is not None:
+            tmin = float(min_transition_s)
+        if max_transition_s is not None:
+            tmax = float(max_transition_s)
+        if tmin < 0:
+            tmin = 0.0
+        if tmax < tmin:
+            tmax = tmin
+
+        transitions = [random.uniform(tmin, tmax) for _ in range(max(0, n - 1))]
+        total_overlap = float(sum(transitions))
+        total_duration_s = float(max(0.1, total_duration_s))
+        per_img = (total_duration_s + total_overlap) / max(1, n)
+        durations = [per_img for _ in range(n)]
+
+        logo_file = LogoFactory.ensure_logo_file(logo_path)
+        safe_call_status(status, f"Make from images: n={n} | total={total_duration_s:.2f}s | per={per_img:.2f}s | overlap={total_overlap:.2f}s")
+
+        filter_complex, vmap, _amap = self._build_filter_complex(
+            input_paths=image_paths,
+            durations=durations,
+            transitions=transitions,
+            logo_input_index=n,
+        )
+
+        cmd: List[str] = ["ffmpeg", "-y", "-hide_banner"]
+
+        # Loop image inputs
+        for p, dur in zip(image_paths, durations):
+            cmd += ["-loop", "1", "-framerate", str(fps), "-t", f"{dur:.3f}", "-i", p]
+
+        cmd += ["-i", logo_file]
+        cmd += ["-filter_complex", filter_complex, "-map", f"[{vmap}]", "-an"]
+
+        cmd += ["-r", str(fps), "-c:v", self.encoder.codec]
+        cmd += list(self.encoder.ffmpeg_params)
+        cmd += ["-b:v", self.opts.video_bitrate, "-threads", str(self.opts.threads)]
+
+        if self.opts.force_yuv420p:
+            cmd += ["-pix_fmt", "yuv420p"]
+        if self.opts.faststart:
+            cmd += ["-movflags", "+faststart"]
+
+        cmd += [output_path]
+
+        started = time.time()
+        safe_call_status(status, "Run ffmpeg (images)...")
+
+        stderr_lines: List[str] = []
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            bufsize=1,
+        )
+
+        try:
+            while True:
+                if should_cancel and should_cancel():
+                    safe_call_status(status, "Cancel requested. Terminating ffmpeg...")
+                    proc.terminate()
+                    raise RuntimeError("Cancelled by user.")
+
+                if proc.stderr is not None:
+                    line = proc.stderr.readline()
+                    if line:
+                        stderr_lines.append(line.rstrip())
+                        if ("time=" in line) or ("frame=" in line) or ("Error" in line) or ("error" in line):
+                            safe_call_status(status, line.rstrip())
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.02)
+
+            rc = proc.wait()
+            tail = "\n".join(stderr_lines[-200:])
+            if rc != 0:
+                raise RuntimeError(
+                    f"FFmpeg failed (rc={rc}).\n\nCMD:\n{shell_join(cmd)}\n\nSTDERR tail:\n{tail}"
+                )
+
+            wall_s = max(0.0, time.time() - started)
+            return wall_s, shell_join(cmd), tail
+
+        finally:
+            if (not logo_path) and os.path.isfile(logo_file):
+                try:
+                    os.unlink(logo_file)
+                except Exception:
+                    pass
+
 class MoviePyMerger:
     def __init__(self, opts: MergeOptions, encoder: EncoderChoice) -> None:
         if VideoFileClip is None:
@@ -746,6 +892,110 @@ class MoviePyMerger:
                     pass
 
 
+def make_from_images(
+    self,
+    image_paths: Sequence[str],
+    output_path: str,
+    total_duration_s: float,
+    logo_path: Optional[str],
+    should_cancel: Optional[CancelFn],
+    status: Optional[StatusFn],
+    min_transition_s: Optional[float] = None,
+    max_transition_s: Optional[float] = None,
+) -> Tuple[float, str, str]:
+    """Fallback slideshow builder using MoviePy.
+
+    - Forces codec to libx264 to avoid GPU driver issues.
+    - Uses random transition durations within range (default: opts.transition_range).
+    - Audio is always OFF.
+    """
+    if not image_paths:
+        raise ValueError("Không có hình ảnh.")
+
+    tmin, tmax = self.opts.transition_range
+    if min_transition_s is not None:
+        tmin = float(min_transition_s)
+    if max_transition_s is not None:
+        tmax = float(max_transition_s)
+    tmin = max(0.0, tmin)
+    tmax = max(tmin, tmax)
+
+    total_duration_s = float(max(0.1, total_duration_s))
+    n = len(image_paths)
+    transitions = [random.uniform(tmin, tmax) for _ in range(max(0, n - 1))]
+    total_overlap = float(sum(transitions))
+    per_img = (total_duration_s + total_overlap) / max(1, n)
+
+    safe_call_status(status, f"Backend: moviepy | Encoder: libx264 (forced) | Audio: OFF")
+    safe_call_status(status, f"Make from images (moviepy): n={n} total={total_duration_s:.2f}s per={per_img:.2f}s")
+
+    processed: List[CompositeVideoClip] = []
+    clips_to_close: List[object] = []
+
+    try:
+        clips: List[CompositeVideoClip] = []
+        for p in image_paths:
+            if should_cancel and should_cancel():
+                raise RuntimeError("CANCELLED")
+            base = ImageClip(p).set_duration(per_img)
+            clips_to_close.append(base)
+            fitted, _pos = self.fit_clip_with_blurred_bg(base)
+            fitted = fitted.set_duration(per_img)
+            fitted = self.apply_random_kenburns(fitted)
+            processed.append(fitted)
+            clips.append(fitted)
+
+        if not clips:
+            raise ValueError("Không có clip hợp lệ.")
+
+        out = clips[0]
+        for i in range(1, len(clips)):
+            tr = transitions[i - 1] if i - 1 < len(transitions) else 0.0
+            if tr > 0:
+                clips[i] = clips[i].crossfadein(tr)
+                out = concatenate_videoclips([out, clips[i]], method="compose", padding=-tr)
+            else:
+                out = concatenate_videoclips([out, clips[i]], method="compose")
+
+        # logo overlay (optional)
+        logo_file = LogoFactory.ensure_logo_file(logo_path)
+        if logo_file and os.path.isfile(logo_file):
+            try:
+                tw, th = self.opts.target_size
+                logo_h = int(min(tw, th) * 0.14)
+                margin = 30
+                logo = ImageClip(logo_file).set_duration(out.duration).resize(height=logo_h)
+                clips_to_close.append(logo)
+                logo = logo.set_position((margin, th - logo_h - margin))
+                out = CompositeVideoClip([out, logo], size=(tw, th)).set_duration(out.duration)
+            except Exception:
+                pass
+
+        started = time.time()
+        out.write_videofile(
+            output_path,
+            fps=int(self.opts.fps),
+            codec="libx264",
+            audio=False,
+            bitrate=self.opts.video_bitrate,
+            threads=self.opts.threads,
+            logger=None,
+        )
+        wall_s = max(0.0, time.time() - started)
+        return wall_s, "moviepy_write_videofile(codec=libx264)", ""
+    finally:
+        for c in processed:
+            try:
+                c.close()
+            except Exception:
+                pass
+        for c in clips_to_close:
+            try:
+                c.close()
+            except Exception:
+                pass
+
+
 class VideoMerger:
     def __init__(self, opts: Optional[MergeOptions] = None) -> None:
         self.opts = opts or MergeOptions()
@@ -818,3 +1068,156 @@ class VideoMerger:
                 raise
 
         raise ValueError(f"Unknown backend: {self.opts.backend}")
+
+
+
+    def make_video_from_image_folder(
+        self,
+        image_folder: str,
+        output_path: str,
+        logo_path: Optional[str] = None,
+        img_opts: Optional[ImageVideoOptions] = None,
+        should_cancel: Optional[CancelFn] = None,
+        status: Optional[StatusFn] = None,
+    ) -> MergeResult:
+        """Create an IG-style vertical video from images in a folder (Fast FFmpeg).
+
+        Skip creation if number of images < ``img_opts.min_images``.
+        If number of images > ``min_images * duration_scale_trigger``, increase total duration proportionally.
+        """
+        opts = img_opts or ImageVideoOptions()
+
+        if not os.path.isdir(image_folder):
+            raise ValueError(f"Folder không tồn tại: {image_folder}")
+
+        exts = tuple(e.lower() for e in opts.image_exts)
+        files = [
+            os.path.join(image_folder, f)
+            for f in os.listdir(image_folder)
+            if os.path.isfile(os.path.join(image_folder, f)) and os.path.splitext(f)[1].lower() in exts
+        ]
+        files.sort(key=natural_key)
+        n = len(files)
+        if n == 0:
+            raise ValueError("Folder không có hình ảnh hợp lệ.")
+
+        if n < int(max(1, opts.min_images)):
+            safe_call_status(status, f"Skip: {os.path.basename(image_folder)} (images={n} < min={opts.min_images})")
+            return MergeResult(output_path="", duration_s=0.0, debug=self._debug("fast_ffmpeg_images_skip", "", ""))
+
+        total_duration = float(max(0.1, opts.total_duration_s))
+        trigger = float(max(1.0, opts.duration_scale_trigger))
+        if n > (opts.min_images * trigger):
+            total_duration = total_duration * (n / (opts.min_images * trigger))
+            safe_call_status(status, f"Auto duration: n={n} > min*{trigger:g} => total={total_duration:.2f}s")
+
+        
+        prev_backend = self.opts.backend
+        prev_keep_audio = self.opts.keep_audio
+        prev_bitrate = self.opts.video_bitrate
+        try:
+            target_backend = prev_backend if prev_backend in ("fast_ffmpeg", "moviepy") else "fast_ffmpeg"
+            self.opts.backend = target_backend
+            self.opts.keep_audio = False
+            self.opts.video_bitrate = DEFAULT_VIDEO_BITRATE  # fixed 6000k
+
+            if target_backend == "fast_ffmpeg":
+                self.encoder = FFmpegDetector.choose_encoder(self.opts)
+                self.gpu_name = HardwareInfo.detect_gpu_name(self.encoder.codec)
+
+                safe_call_status(
+                    status,
+                    f"Backend: fast_ffmpeg | Encoder: {self.processing_backend_label()} | Audio: OFF",
+                )
+                ffm = FFmpegMerger(self.opts, self.encoder)
+
+                wall_s, cmd, tail = ffm.make_from_images(
+                    image_paths=files,
+                    output_path=output_path,
+                    total_duration_s=total_duration,
+                    logo_path=logo_path,
+                    should_cancel=should_cancel,
+                    status=status,
+                    min_transition_s=opts.min_transition_s,
+                    max_transition_s=opts.max_transition_s,
+                )
+                return MergeResult(
+                    output_path=output_path,
+                    duration_s=wall_s,
+                    debug=self._debug("fast_ffmpeg_images", cmd, tail),
+                )
+
+            # MoviePy fallback (forces libx264 inside)
+            self.encoder = EncoderChoice(label="CPU (libx264)", codec="libx264", is_gpu=False)
+            self.gpu_name = None
+
+            safe_call_status(
+                status,
+                "Backend: moviepy | Encoder: libx264 (forced) | Audio: OFF",
+            )
+            mp = MoviePyMerger(self.opts, self.encoder)
+            wall_s, cmd, tail = mp.make_from_images(
+                image_paths=files,
+                output_path=output_path,
+                total_duration_s=total_duration,
+                logo_path=logo_path,
+                should_cancel=should_cancel,
+                status=status,
+                min_transition_s=opts.min_transition_s,
+                max_transition_s=opts.max_transition_s,
+            )
+            return MergeResult(
+                output_path=output_path,
+                duration_s=wall_s,
+                debug=self._debug("moviepy_images", cmd, tail),
+            )
+        finally:
+            self.opts.backend = prev_backend
+            self.opts.keep_audio = prev_keep_audio
+            self.opts.video_bitrate = prev_bitrate
+
+            def make_videos_from_parent_folder(
+                self,
+                parent_folder: str,
+                output_dir: str,
+                logo_path: Optional[str] = None,
+                img_opts: Optional[ImageVideoOptions] = None,
+                should_cancel: Optional[CancelFn] = None,
+                status: Optional[StatusFn] = None,
+            ) -> List[MergeResult]:
+                """Batch create videos from each direct subfolder (1-level)."""
+                if not os.path.isdir(parent_folder):
+                    raise ValueError(f"Folder không tồn tại: {parent_folder}")
+
+                os.makedirs(output_dir, exist_ok=True)
+                subfolders = [
+                    os.path.join(parent_folder, d)
+                    for d in os.listdir(parent_folder)
+                    if os.path.isdir(os.path.join(parent_folder, d))
+                ]
+                subfolders.sort(key=natural_key)
+
+                results: List[MergeResult] = []
+                for i, sub in enumerate(subfolders, 1):
+                    if should_cancel and should_cancel():
+                        safe_call_status(status, "Cancel requested.")
+                        break
+
+                    name = os.path.basename(sub.rstrip("/\\"))
+                    out_path = os.path.join(output_dir, f"{name}.mp4")
+
+                    safe_call_status(status, f"[{i}/{len(subfolders)}] Folder: {name}")
+                    try:
+                        res = self.make_video_from_image_folder(
+                            image_folder=sub,
+                            output_path=out_path,
+                            logo_path=logo_path,
+                            img_opts=img_opts,
+                            should_cancel=should_cancel,
+                            status=status,
+                        )
+                        results.append(res)
+                    except Exception as e:
+                        safe_call_status(status, f"Error folder '{name}': {e}")
+
+                return results

@@ -1,4 +1,4 @@
-# File: ig_merge_video_ui.py
+# File: ig_merge_video_ui_v2.py
 """
 IG Merge Video UI (PyQt5)
 ========================
@@ -31,6 +31,9 @@ import os
 import sys
 import traceback
 from typing import Dict, List, Optional, Tuple
+from abc import ABC, abstractmethod
+
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
@@ -61,9 +64,13 @@ from PyQt5.QtWidgets import (
     QToolButton,
     QFrame,
     QGridLayout,
+    QTabWidget, 
+    QTreeWidget, 
+    QTreeWidgetItem, 
+    QLineEdit
 )
 
-from ig_merge_video_core import MergeOptions, VideoMerger, natural_key, FFmpegProbe
+from ig_merge_video_core import MergeOptions, ImageVideoOptions, VideoMerger, natural_key, FFmpegProbe
 
 
 def norm(p: str) -> str:
@@ -85,8 +92,8 @@ def format_duration(seconds: float) -> str:
         return f"{h:d}:{m:02d}:{sec:02d}"
     return f"{m:02d}:{sec:02d}"
 
-
-class ThumbnailCache:
+class ThumbnailCache(ABC):
+    """Abstract thumbnail cache."""
     def __init__(self, thumb: int = 110) -> None:
         self.thumb = int(thumb)
         self._cache: Dict[str, QIcon] = {}
@@ -97,6 +104,15 @@ class ThumbnailCache:
         ico = self._make(path)
         self._cache[path] = ico
         return ico
+    
+    @abstractmethod
+    def _make(self, path: str) -> QIcon:
+        pass
+
+class VideoThumbnailCache(ThumbnailCache):
+    """Video thumbnail (first frame) icon cache: square-crop is OK for videos."""
+    def __init__(self, thumb: int = 110) -> None:
+        super().__init__(thumb)
 
     def _make(self, path: str) -> QIcon:
         cap = cv2.VideoCapture(path)
@@ -119,6 +135,27 @@ class ThumbnailCache:
         qimg = QImage(frame.data, frame.shape[1], frame.shape[0], frame.strides[0], QImage.Format_RGB888)
         return QIcon(QPixmap.fromImage(qimg.copy()))
 
+class ImageThumbnailCache(ThumbnailCache):
+    """Image thumbnail icon cache: preserve aspect ratio."""
+    def __init__(self, thumb: int = 110) -> None:
+        super().__init__(thumb)
+
+    def _make(self, path: str) -> QIcon:
+        pix = QPixmap(path)
+        if pix is None:
+            return QIcon()
+
+        canvas = QPixmap(self.thumb, self.thumb)
+        canvas.fill(Qt.transparent)
+
+        scaled = pix.scaled(self.thumb, self.thumb, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        x = (self.thumb - scaled.width()) // 2
+        y = (self.thumb - scaled.height()) // 2
+        from PyQt5.QtGui import QPainter
+        painter = QPainter(canvas)
+        painter.drawPixmap(x, y, scaled)
+        painter.end()
+        return QIcon(canvas)
 
 class VideoPreviewWidget(QWidget):
     def __init__(self) -> None:
@@ -222,7 +259,6 @@ class VideoPreviewWidget(QWidget):
         pix = QPixmap.fromImage(qimg.copy())
         self.video_label.setPixmap(pix.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
-
 class SelectedThumbWidget(QFrame):
     """
     Widget dùng cho Selected area:
@@ -262,7 +298,6 @@ class SelectedThumbWidget(QFrame):
 
         self.setFixedSize(114, 142)
 
-
 class OutputRowWidget(QFrame):
     """
     Widget cho Output:
@@ -292,38 +327,45 @@ class OutputRowWidget(QFrame):
         lay.addWidget(thumb_lbl)
         lay.addLayout(mid, 1)
 
-
-class MergeWorker(QObject):
+class Worker(QObject):
     finished = pyqtSignal(str, str, bool, str)
     error = pyqtSignal(str, str)
     status = pyqtSignal(str)
     cancelled = pyqtSignal()
 
-    def __init__(
-        self,
-        video_paths: List[str],
-        output_path: str,
-        logo_path: Optional[str],
-        keep_audio: bool,
-        force_codec: Optional[str],
-        backend: str,
-    ) -> None:
+    def __init__(self,
+                 input_paths: List[str],
+                 output_path: str,
+                 logo_path: Optional[str],
+                 keep_audio: bool,
+                 backend: str,
+                 force_codec: Optional[str]) -> None:
         super().__init__()
-        self.video_paths = video_paths
+        self.input_paths = input_paths
         self.output_path = output_path
         self.logo_path = logo_path
         self.keep_audio = keep_audio
+        self.backend = str(backend)
         self.force_codec = force_codec
-        self.backend = backend
         self._cancel_requested = False
-
     def request_cancel(self) -> None:
         self._cancel_requested = True
 
     def _should_cancel(self) -> bool:
         return self._cancel_requested
+    
+    def run(self) -> None:
+        raise NotImplementedError
+
+class VideoMergeWorker(Worker):
+    def __init__(self, input_paths, output_path, logo_path, keep_audio, backend, force_codec):
+        super().__init__(input_paths, output_path, logo_path, keep_audio, backend, force_codec)
 
     def run(self) -> None:
+        video_paths = [p for p in self.input_paths if os.path.isfile(p) and p.lower().endswith(('.mp4', '.mov'))]
+        if not video_paths:
+            self.error.emit("Lỗi input", "Không có video hợp lệ để merge.")
+            return
         try:
             opts = MergeOptions(
                 keep_audio=self.keep_audio,
@@ -337,14 +379,13 @@ class MergeWorker(QObject):
                 self.status.emit(msg)
 
             res = merger.merge(
-                self.video_paths,
+                video_paths,
                 self.output_path,
-                logo_path=self.logo_path,
+                logo_path=(self.logo_path.strip() or None),
                 should_cancel=self._should_cancel,
                 status=s,
             )
             self.finished.emit(res.output_path, res.debug.encoder_label, res.debug.is_gpu, res.debug.backend)
-
         except RuntimeError as e:
             if str(e) == "CANCELLED":
                 self.cancelled.emit()
@@ -353,21 +394,18 @@ class MergeWorker(QObject):
         except Exception:
             self.error.emit("Lỗi merge", traceback.format_exc())
 
-
-class MergeWindow(QMainWindow):
+class MergeVideoTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("IG Merge Video")
-        self.setMinimumSize(1180, 720)
 
-        self.thumb_cache = ThumbnailCache(thumb=110)
+        self.thumb_cache = VideoThumbnailCache(thumb=110)
         self.duration_cache: Dict[str, float] = {}
 
         self.video_paths: List[str] = []
         self.logo_path: Optional[str] = None
 
         self._worker_thread: Optional[QThread] = None
-        self._worker: Optional[MergeWorker] = None
+        self._worker: Optional[VideoMergeWorker] = None
 
         self._setup_ui()
         self._load_encoder_choices()
@@ -376,9 +414,7 @@ class MergeWindow(QMainWindow):
     # ---------------- UI ----------------
 
     def _setup_ui(self) -> None:
-        central = QWidget()
-        self.setCentralWidget(central)
-        root = QHBoxLayout(central)
+        root = QHBoxLayout(self)
 
         splitter = QSplitter(Qt.Horizontal)
         root.addWidget(splitter)
@@ -406,7 +442,7 @@ class MergeWindow(QMainWindow):
         toolbar.addWidget(self.btn_add)
         toolbar.addWidget(self.btn_to_merge)
         toolbar.addWidget(self.btn_remove)
-        toolbar.addStretch(1)
+        # toolbar.addStretch(1)
         left_lay.addLayout(toolbar)
 
         # IMPORTANT: sort combo dưới nút thêm video (giữ đúng yêu cầu)
@@ -509,13 +545,6 @@ class MergeWindow(QMainWindow):
         btn_row = QHBoxLayout()
         self.btn_clear_merge = QPushButton("Xoá danh sách merge")
         self.btn_clear_merge.clicked.connect(self._clear_merge)
-        btn_row.addWidget(self.btn_clear_merge)
-        btn_row.addStretch(1)
-        sel_lay.addLayout(btn_row)
-
-        right_lay.addWidget(gb_selected, 3)
-
-        bottom = QHBoxLayout()
         self.btn_merge = QPushButton("Merge")
         self.btn_merge.clicked.connect(self._start_merge)
 
@@ -523,10 +552,13 @@ class MergeWindow(QMainWindow):
         self.btn_cancel.clicked.connect(self._cancel_merge)
         self.btn_cancel.hide()
 
-        bottom.addStretch(1)
-        bottom.addWidget(self.btn_merge)
-        bottom.addWidget(self.btn_cancel)
-        right_lay.addLayout(bottom)
+        btn_row.addWidget(self.btn_clear_merge)
+        btn_row.addStretch(1)
+        btn_row.addWidget(self.btn_merge)
+        btn_row.addWidget(self.btn_cancel)
+        sel_lay.addLayout(btn_row)
+
+        right_lay.addWidget(gb_selected, 3)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
@@ -715,7 +747,8 @@ class MergeWindow(QMainWindow):
         self._set_status("Đang khởi tạo...")
 
         self._worker_thread = QThread()
-        self._worker = MergeWorker(ordered, out_path, self.logo_path, keep_audio, force_codec, backend)
+        self._worker = VideoMergeWorker(ordered, out_path, self.logo_path, 
+                                        keep_audio=keep_audio, force_codec=force_codec, backend=backend)
         self._worker.moveToThread(self._worker_thread)
 
         self._worker_thread.started.connect(self._worker.run)
@@ -801,15 +834,534 @@ class MergeWindow(QMainWindow):
         super().closeEvent(event)
 
 
+# ---------------- Make Video From Image (Fast FFmpeg) ----------------
+import subprocess
+import tempfile
+import shutil
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
+def _ensure_ffmpeg_available() -> None:
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        raise RuntimeError("Không tìm thấy ffmpeg/ffprobe trong PATH. Cài ffmpeg và thử lại.")
+
+def _list_images(folder: str) -> List[str]:
+    items: List[str] = []
+    try:
+        for name in os.listdir(folder):
+            p = os.path.join(folder, name)
+            if os.path.isfile(p) and name.lower().endswith(IMAGE_EXTS):
+                items.append(p)
+    except Exception:
+        return []
+    items.sort(key=natural_key)
+    return items
+
+class ImageMakeWorker(Worker):
+    outfilename = pyqtSignal(str)
+    processpercent = pyqtSignal(float)
+    def __init__(self, input_paths: List[str], 
+                 output_path: str, 
+                 logo_path: Optional[str], 
+                 backend:str, 
+                 force_codec: Optional[str],
+                 total_duration_s: float,
+                 fps: int,
+                 min_images: int) -> None:
+        super().__init__(input_paths, 
+                         output_path, 
+                         logo_path,
+                         keep_audio=False,
+                         backend=backend,
+                         force_codec=force_codec)
+        self.total_duration_s = float(total_duration_s)
+        self.fps = int(fps)
+        self.min_images = int(max(1, min_images))
+    
+    def run(self) -> None:
+        try:
+            _ensure_ffmpeg_available()
+            os.makedirs(self.output_path, exist_ok=True)
+
+            mopts = MergeOptions(
+                backend=self.backend,
+                keep_audio=self.keep_audio,
+                fps=self.fps,
+                force_codec=self.force_codec,
+            )
+
+            merger = VideoMerger(mopts)
+
+            img_opts = ImageVideoOptions(
+                total_duration_s=self.total_duration_s,
+                min_images=self.min_images,
+            )
+
+            for idx, folder in enumerate(self.input_paths, start=1):
+                if self._should_cancel():
+                    self.cancelled.emit()
+                    return
+
+                name = os.path.basename(folder.rstrip(os.sep))
+                out_path = os.path.join(self.output_path, f"{name}.mp4")
+                
+
+                res = merger.make_video_from_image_folder(
+                    image_folder=folder,
+                    output_path=out_path,
+                    logo_path=(self.logo_path.strip() or None),
+                    img_opts=img_opts,
+                    should_cancel=self._should_cancel,
+                )
+                self.status.emit(f"[{idx}/{len(self.input_paths)}] {name} -> {out_path}")
+                if res.output_path:
+                    self.outfilename.emit(os.path.basename(res.output_path))
+                self.processpercent.emit(idx / len(self.input_paths) * 100.0)
+                
+        except Exception as e:
+            self.error.emit("Lỗi tạo video từ ảnh", f"{e}\n\n{traceback.format_exc()}")
+        finally:
+            self.finished.emit(self.output_path, "", False, "")
+        
+
+class MakeVideoFromImageTab(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.img_thumb_cache = ImageThumbnailCache(thumb=110)
+        self.logo_path: Optional[str] = None
+
+        self._worker_thread: Optional[QThread] = None
+        self._worker: Optional[ImageMakeWorker] = None
+        self._current_single_folder: Optional[str] = None
+        self._last_parent_folder: Optional[str] = None
+
+        self._setup_ui()
+        self._load_encoder_choices()
+        self._sync_left_mode()
+
+    def _setup_ui(self) -> None:
+        root = QHBoxLayout(self)
+
+        splitter = QSplitter(Qt.Horizontal)
+        root.addWidget(splitter)
+
+        # LEFT
+        left = QWidget()
+        left_lay = QVBoxLayout(left)
+        left_lay.setContentsMargins(8, 8, 8, 8)
+        left_lay.setSpacing(8)
+
+        toolbar = QHBoxLayout()
+        self.btn_add = QPushButton("＋")
+        self.btn_add.setToolTip("Chọn folder (tùy Batch Parent Folder)")
+        self.btn_add.clicked.connect(self._handle_plus)
+
+        self.btn_clear = QPushButton("Clear")
+        self.btn_clear.clicked.connect(self._clear_left)
+
+        self.chk_batch_from_parent = QCheckBox("Batch Parent Folder")
+        self.chk_batch_from_parent.setChecked(True)
+        self.chk_batch_from_parent.stateChanged.connect(self._sync_left_mode)
+
+        toolbar.addWidget(self.btn_add)
+        toolbar.addStretch(1)
+        toolbar.addWidget(self.btn_clear)
+        left_lay.addLayout(toolbar)
+        left_lay.addWidget(self.chk_batch_from_parent)
+
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Folders"])
+        self.tree.itemSelectionChanged.connect(self._on_tree_selection)
+
+        self.image_name_list = QListWidget()
+        self.image_name_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.image_name_list.currentItemChanged.connect(self._on_image_name_select)
+        
+        left_lay.addWidget(self.tree, 1)
+        left_lay.addWidget(self.image_name_list, 1)
+
+        self.log_box = QTextEdit()
+        self.log_box.setReadOnly(True)
+        self.log_box.setMinimumHeight(120)
+        left_lay.addWidget(self.log_box)
+
+        splitter.addWidget(left)
+
+        # RIGHT
+        right = QWidget()
+        rlay = QVBoxLayout(right)
+        rlay.setContentsMargins(8, 8, 8, 8)
+        rlay.setSpacing(8)
+
+        top = QGroupBox("Preview Images")
+        top_lay = QHBoxLayout(top)
+
+        self.thumb_list = QListWidget()
+        self.thumb_list.setViewMode(QListWidget.IconMode)
+        self.thumb_list.setResizeMode(QListWidget.Adjust)
+        self.thumb_list.setMovement(QListWidget.Static)
+        self.thumb_list.setIconSize(QSize(110, 110))
+        self.thumb_list.setSpacing(6)
+        self.thumb_list.setSelectionMode(QAbstractItemView.NoSelection)
+
+        self.outname_list = QListWidget()
+        self.outname_list.setViewMode(QListWidget.ListMode)
+        self.outname_list.setResizeMode(QListWidget.Adjust)
+        self.outname_list.setMovement(QListWidget.Static)
+        self.outname_list.setSelectionMode(QAbstractItemView.NoSelection)
+
+        top_lay.addWidget(self.thumb_list, 3)
+        top_lay.addWidget(self.outname_list, 1)
+
+        rlay.addWidget(top, 2)
+
+        out_group = QGroupBox("Output")
+        out_lay = QGridLayout(out_group)
+
+        self.out_dir = QLineEdit()
+        self.out_dir.setPlaceholderText("Output folder (mặc định: folder cha)")
+        self.btn_pick_out = QPushButton("Browse")
+        self.btn_pick_out.clicked.connect(self._pick_output_dir)
+
+        self.in_duration = QLineEdit("30")
+        self.in_fps = QLineEdit("30")
+        self.in_min_images = QLineEdit("7")
+
+        self.logo_line = QLineEdit()
+        self.logo_line.setPlaceholderText("Logo (tuỳ chọn)")
+        self.btn_pick_logo = QPushButton("Browse")
+        self.btn_pick_logo.clicked.connect(self._pick_logo)
+
+        self.backend_combo = QComboBox()
+        self.backend_combo.addItem("Fast FFmpeg (khuyến nghị)", "fast_ffmpeg")
+        self.backend_combo.addItem("MoviePy (fallback)", "moviepy")
+
+        self.encoder_combo = QComboBox()
+
+        self.btn_make = QPushButton("Make")
+        self.btn_make.clicked.connect(self._start_make)
+
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self._cancel_make)
+        self.btn_cancel.setEnabled(False)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setVisible(False)
+
+        row = 0
+        out_lay.addWidget(QLabel("Output dir"), row, 0)
+        out_lay.addWidget(self.out_dir, row, 1, 1, 2)
+        out_lay.addWidget(self.btn_pick_out, row, 3)
+        row += 1
+
+        out_lay.addWidget(QLabel("Duration (s)"), row, 0)
+        out_lay.addWidget(self.in_duration, row, 1, 1, 2)
+        out_lay.addWidget(QLabel(""), row, 3)
+        row += 1
+
+        out_lay.addWidget(QLabel("FPS"), row, 0)
+        out_lay.addWidget(self.in_fps, row, 1,  1, 2)
+        out_lay.addWidget(QLabel(""), row, 3)
+        row += 1
+
+        out_lay.addWidget(QLabel("Min Number Image"), row, 0)
+        out_lay.addWidget(self.in_min_images, row, 1,  1, 2)
+        out_lay.addWidget(QLabel(""), row, 3)
+        row += 1
+
+        out_lay.addWidget(QLabel("Logo"), row, 0)
+        out_lay.addWidget(self.logo_line, row, 1,  1, 2)
+        out_lay.addWidget(self.btn_pick_logo, row, 3)
+        row += 1
+
+        out_lay.addWidget(QLabel("Backend"), row, 0)
+        out_lay.addWidget(self.backend_combo, row, 1)
+        out_lay.addWidget(QLabel("Encoder"), row, 2)
+        out_lay.addWidget(self.encoder_combo, row, 3)
+        row += 1
+
+        out_lay.addWidget(self.btn_make, row, 2)
+        out_lay.addWidget(self.btn_cancel, row, 3)
+        row += 1
+
+        out_lay.addWidget(self.progress, row, 0, 1, 4)
+
+        rlay.addWidget(out_group, 1)
+
+        splitter.addWidget(right)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
+
+    def _load_encoder_choices(self) -> None:
+        self.encoder_combo.clear()
+        self.encoder_combo.addItem("Auto (ưu tiên GPU nếu có)", None)
+        try:
+            for enc in VideoMerger.supported_encoders():
+                self.encoder_combo.addItem(f"{enc.label} [{enc.codec}]", enc.codec)
+        except Exception:
+            pass
+
+    def _append_log(self, line: str) -> None:
+        self.log_box.append(line)
+        self.log_box.moveCursor(self.log_box.textCursor().End)
+
+    def _sync_left_mode(self) -> None:
+        batch = self.chk_batch_from_parent.isChecked()
+        self.tree.setVisible(batch)
+        self.image_name_list.setVisible(not batch)
+        self._clear_preview_only()
+
+    def _clear_preview_only(self) -> None:
+        self.thumb_list.clear()
+
+    def _clear_left(self) -> None:
+        self.tree.clear()
+        self.image_name_list.clear()
+        self._current_single_folder = None
+        self._last_parent_folder = None
+        self._clear_preview_only()
+
+    def _handle_plus(self) -> None:
+        if self.chk_batch_from_parent.isChecked():
+            d = QFileDialog.getExistingDirectory(self, "Chọn folder cha")
+            if not d:
+                return
+            d = norm(d)
+            self._last_parent_folder = d
+            self._load_parent_folder(d)
+        else:
+            d = QFileDialog.getExistingDirectory(self, "Chọn 1 folder ảnh")
+            if not d:
+                return
+            d = norm(d)
+            self._current_single_folder = d
+            self._load_single_folder_images(d)
+
+    def _load_parent_folder(self, root: str) -> None:
+        self.tree.clear()
+        root_item = QTreeWidgetItem([root])
+        root_item.setData(0, Qt.UserRole, root)
+        self.tree.addTopLevelItem(root_item)
+
+        try:
+            subs = [os.path.join(root, name) for name in os.listdir(root)]
+            subs = [p for p in subs if os.path.isdir(p)]
+            subs.sort(key=natural_key)
+            for p in subs:
+                child = QTreeWidgetItem([os.path.basename(p)])
+                child.setData(0, Qt.UserRole, p)
+                root_item.addChild(child)
+        except Exception as e:
+            self._append_log(f"⚠️ Không đọc subfolder: {e}")
+
+        root_item.setExpanded(True)
+        self._append_log(f"Parent: {root} (subfolders={root_item.childCount()})")
+
+    def _load_single_folder_images(self, folder: str) -> None:
+        self.image_name_list.clear()
+        imgs = _list_images(folder)
+        for p in imgs:
+            it = QListWidgetItem(os.path.basename(p))
+            it.setData(Qt.UserRole, p)
+            self.image_name_list.addItem(it)
+        self._append_log(f"Single folder: {folder} (images={len(imgs)})")
+
+        # auto preview using this folder
+        self._preview_folder(folder)
+
+    def _pick_output_dir(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Chọn output folder")
+        if d:
+            self.out_dir.setText(norm(d))
+
+    def _pick_logo(self) -> None:
+        p, _ = QFileDialog.getOpenFileName(self, "Chọn logo", filter="Images (*.png *.jpg *.jpeg *.webp)")
+        if p:
+            self.logo_line.setText(norm(p))
+            self.logo_path = norm(p)
+            self._append_log(f"Logo: {norm(p)}")
+
+    def _selected_folder_from_tree(self) -> Optional[str]:
+        items = self.tree.selectedItems()
+        if not items:
+            return None
+        return items[0].data(0, Qt.UserRole)
+
+    def _folders_to_process(self) -> List[str]:
+        if self.chk_batch_from_parent.isChecked():
+            sel_items = self.tree.selectedItems()
+            if not sel_items:
+                # default: process all children under the (only) root if exists
+                if self.tree.topLevelItemCount() == 1:
+                    root = self.tree.topLevelItem(0)
+                    return [root.child(i).data(0, Qt.UserRole) for i in range(root.childCount())]
+                return []
+            item = sel_items[0]
+            # if selecting root => all its children (1-level)
+            if item.parent() is None and item.childCount() > 0:
+                return [item.child(i).data(0, Qt.UserRole) for i in range(item.childCount())]
+            # leaf => only that folder
+            folder = item.data(0, Qt.UserRole)
+            return [folder] if folder else []
+        # single mode: not batch => only current folder is process target
+        return [self._current_single_folder] if self._current_single_folder else []
+
+    def _on_tree_selection(self) -> None:
+        folder = self._selected_folder_from_tree()
+        if not folder:
+            return
+        # preview only: show images inside selected folder
+        self._preview_folder(folder)
+
+    def _on_image_name_select(self, cur: Optional[QListWidgetItem], _prev: Optional[QListWidgetItem]) -> None:
+        # Only update preview list for the folder; selection is for preview purpose only
+        if not self._current_single_folder:
+            return
+        self._preview_folder(self._current_single_folder)
+
+    def _preview_folder(self, folder: str) -> None:
+        images = _list_images(folder)
+        self.thumb_list.clear()
+
+        if not images:
+            self.thumb_list.addItem(QListWidgetItem("No images"))
+            return
+
+        for p in images[:300]:
+            it = QListWidgetItem(self.img_thumb_cache.get(p), "")
+            it.setToolTip(p)
+            self.thumb_list.addItem(it)
+
+
+    def _start_make(self) -> None:
+        folders = self._folders_to_process()
+        if not folders:
+            QMessageBox.warning(self, "Thiếu folder", "Chọn folder hoặc folder cha để xử lý.")
+            return
+
+        out_dir = self.out_dir.text().strip()
+        if not out_dir:
+            if self.chk_batch_from_parent.isChecked():
+                out_dir = self._last_parent_folder or (os.path.dirname(folders[0]) if folders else "")
+            else:
+                out_dir = os.path.dirname(folders[0]) if folders else ""
+            out_dir = norm(out_dir) if out_dir else ""
+        
+        if not out_dir:
+            QMessageBox.warning(self, "Thiếu output", "Không xác định được output folder.")
+            return
+
+        try:
+            duration = float(self.in_duration.text().strip())
+            fps = int(float(self.in_fps.text().strip()))
+            min_images = int(float(self.in_min_images.text().strip()))
+        except Exception:
+            QMessageBox.warning(self, "Sai input", "Duration/FPS/Min Number Image không hợp lệ.")
+            return
+        backend = self.backend_combo.currentData()
+        force_codec = self.encoder_combo.currentData()
+
+        self._append_log(
+            f"== Start make ==\nBackend={backend}\nEncoder={force_codec or 'auto'}\n"
+            f"OutputDir={out_dir}\nFolders={len(folders)}\n"
+        )
+        self.outname_list.clear()
+        self._set_running(True)
+
+        self._worker_thread = QThread()
+        self._worker = ImageMakeWorker(
+            input_paths=folders,
+            output_path=norm(out_dir),
+            logo_path=(self.logo_path.strip() or None),
+            backend=backend,
+            force_codec=force_codec,
+            total_duration_s=duration,
+            fps=fps,
+            min_images=min_images,
+        )
+        self._worker.moveToThread(self._worker_thread)
+
+        self._worker_thread.started.connect(self._worker.run)
+        self._worker.status.connect(self._append_log)
+        self._worker.finished.connect(self._on_make_done)
+        self._worker.cancelled.connect(self._on_make_cancelled)
+        self._worker.error.connect(self._on_make_error)
+        self._worker.outfilename.connect(lambda name: self.outname_list.addItem(name))
+        self._worker.processpercent.connect(lambda p: self.progress.setValue(int(p)))
+
+        # self._worker.finished.connect(self._worker_thread.quit)
+        # self._worker.error.connect(lambda *_: self._worker_thread.quit())
+        # self._worker.cancelled.connect(self._worker_thread.quit)
+
+        self._worker_thread.finished.connect(self._cleanup_worker)
+
+        self._append_log("▶️ Start make video from images...")
+        self._worker_thread.start()
+    
+    def _set_running(self, on: bool) -> None:
+        self.progress.setVisible(on)
+        self.btn_cancel.setEnabled(on)
+        self.btn_make.setEnabled(not on)
+        self.btn_add.setEnabled(not on)
+        self.btn_clear.setEnabled(not on)
+
+    def _cancel_make(self) -> None:
+        if self._worker:
+            self._append_log("⏹ Cancel requested...")
+            self._worker.request_cancel()
+
+    def _on_make_done(self, out_dir: str, encoder: str, isgpu: bool, backend:str) -> None:
+        self._append_log("== Done ==")
+        self._cleanup_worker()
+        self._set_running(False)
+        QMessageBox.information(self, "Hoàn tất", f"Xuất xong vào:\n{out_dir}")
+
+    def _on_make_cancelled(self) -> None:
+        self._append_log("== CANCELLED ==")
+        self._cleanup_worker()
+        self._set_running(False)
+        QMessageBox.information(self, "Đã huỷ", "Đã huỷ tác vụ.")
+
+    def _on_make_error(self, title: str, detail: str) -> None:
+        self._append_log("== ERROR ==")
+        self._append_log(detail)
+        self._cleanup_worker()
+        self._set_running(False)
+        QMessageBox.critical(self, "Lỗi", f"{title}\n\nXem log để biết chi tiết.")
+
+    def _cleanup_worker(self) -> None:
+        if self._worker_thread:
+            self._worker_thread.quit()
+            self._worker_thread.wait(1500)
+        self._worker_thread = None
+        self._worker = None
+
+
+class MainWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("IG Tools v2")
+        self.setMinimumSize(1180, 720)
+
+        tabs = QTabWidget()
+        self.setCentralWidget(tabs)
+
+        self.tab_merge = MergeVideoTab()
+        self.tab_make = MakeVideoFromImageTab()
+
+        tabs.addTab(self.tab_merge, "Merge Video")
+        tabs.addTab(self.tab_make, "Make Video from Image")
+
+
 def main() -> None:
     app = QApplication(sys.argv)
     try:
-        with open("MacOS.qss", 'r') as f:
+        with open("MacOS.qss", "r") as f:
             app.setStyleSheet(f.read())
-    except: pass
-    w = MergeWindow()
-    w.resize(1280, 760)
-    w.show()
+    except Exception:
+        pass
+    win = MainWindow()
+    win.show()
     sys.exit(app.exec_())
 
 
