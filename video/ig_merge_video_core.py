@@ -1176,48 +1176,48 @@ class VideoMerger:
             self.opts.keep_audio = prev_keep_audio
             self.opts.video_bitrate = prev_bitrate
 
-            def make_videos_from_parent_folder(
-                self,
-                parent_folder: str,
-                output_dir: str,
-                logo_path: Optional[str] = None,
-                img_opts: Optional[ImageVideoOptions] = None,
-                should_cancel: Optional[CancelFn] = None,
-                status: Optional[StatusFn] = None,
-            ) -> List[MergeResult]:
-                """Batch create videos from each direct subfolder (1-level)."""
-                if not os.path.isdir(parent_folder):
-                    raise ValueError(f"Folder không tồn tại: {parent_folder}")
+    def make_videos_from_parent_folder(
+        self,
+        parent_folder: str,
+        output_dir: str,
+        logo_path: Optional[str] = None,
+        img_opts: Optional[ImageVideoOptions] = None,
+        should_cancel: Optional[CancelFn] = None,
+        status: Optional[StatusFn] = None,
+    ) -> List[MergeResult]:
+        """Batch create videos from each direct subfolder (1-level)."""
+        if not os.path.isdir(parent_folder):
+            raise ValueError(f"Folder không tồn tại: {parent_folder}")
 
-                os.makedirs(output_dir, exist_ok=True)
-                subfolders = [
-                    os.path.join(parent_folder, d)
-                    for d in os.listdir(parent_folder)
-                    if os.path.isdir(os.path.join(parent_folder, d))
-                ]
-                subfolders.sort(key=natural_key)
+        os.makedirs(output_dir, exist_ok=True)
+        subfolders = [
+            os.path.join(parent_folder, d)
+            for d in os.listdir(parent_folder)
+            if os.path.isdir(os.path.join(parent_folder, d))
+        ]
+        subfolders.sort(key=natural_key)
 
-                results: List[MergeResult] = []
-                for i, sub in enumerate(subfolders, 1):
-                    if should_cancel and should_cancel():
-                        safe_call_status(status, "Cancel requested.")
-                        break
+        results: List[MergeResult] = []
+        for i, sub in enumerate(subfolders, 1):
+            if should_cancel and should_cancel():
+                safe_call_status(status, "Cancel requested.")
+                break
 
-                    name = os.path.basename(sub.rstrip("/\\"))
-                    out_path = os.path.join(output_dir, f"{name}.mp4")
+            name = os.path.basename(sub.rstrip("/\\"))
+            out_path = os.path.join(output_dir, f"{name}.mp4")
 
-                    safe_call_status(status, f"[{i}/{len(subfolders)}] Folder: {name}")
-                    try:
-                        res = self.make_video_from_image_folder(
-                            image_folder=sub,
-                            output_path=out_path,
-                            logo_path=logo_path,
-                            img_opts=img_opts,
-                            should_cancel=should_cancel,
-                            status=status,
-                        )
-                        results.append(res)
-                    except Exception as e:
-                        safe_call_status(status, f"Error folder '{name}': {e}")
+            safe_call_status(status, f"[{i}/{len(subfolders)}] Folder: {name}")
+            try:
+                res = self.make_video_from_image_folder(
+                    image_folder=sub,
+                    output_path=out_path,
+                    logo_path=logo_path,
+                    img_opts=img_opts,
+                    should_cancel=should_cancel,
+                    status=status,
+                )
+                results.append(res)
+            except Exception as e:
+                safe_call_status(status, f"Error folder '{name}': {e}")
 
-                return results
+        return results
