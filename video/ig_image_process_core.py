@@ -2,6 +2,10 @@ from PIL import Image, ImageFilter
 from enum import Enum
 from typing import Tuple
 
+POST_BASE_SIZE: Tuple[int, int] = (1080, 1350)
+POST_BASE_LOGO_SIZE: Tuple[int, int] = (90, 129)
+POST_BASE_LOGO_POS: Tuple[int, int] = (60,  POST_BASE_SIZE[1] - 60 -POST_BASE_LOGO_SIZE[0])
+
 class LogoPosition(Enum):
     TOP_LEFT = 1
     TOP_RIGHT = 2
@@ -82,6 +86,65 @@ class ImageComposer:
         canvas.paste(logo, pos, logo)
         
         return canvas
+
+
+def target_post_size(width: int, height: int) -> Tuple[int, int]:
+    """IG post size: portrait -> 4:5 (1080x1350), else -> 1:1 (1080x1080)."""
+    return POST_BASE_SIZE if height > width else (1080, 1080)
+
+
+def scale_logo_rect_for_post(target_size: Tuple[int, int]) -> Tuple[int, int, int, int]:
+    """Scale logo size/position from 1080x1350 base into target frame."""
+    tw, th = target_size
+    sx = tw / POST_BASE_SIZE[0]
+    sy = th / POST_BASE_SIZE[1]
+
+    lw = max(1, int(round(POST_BASE_LOGO_SIZE[0] * sx)))
+    lh = max(1, int(round(POST_BASE_LOGO_SIZE[1] * sy)))
+    lx = max(0, int(round(POST_BASE_LOGO_POS[0] * sx)))
+    ly = max(0, int(round(POST_BASE_LOGO_POS[1] * sy)))
+
+    lx = min(lx, max(0, tw - lw))
+    ly = min(ly, max(0, th - lh))
+    return lw, lh, lx, ly
+
+
+def process_post_image_with_logo(image_path: str, logo_path: str, output_path: str) -> None:
+    """Create IG post image with proportional logo.
+
+    Updated 2026-02-28:
+    - Chỉ tạo blur background khi ảnh nguồn lệch tỉ lệ target post.
+    - Nếu ảnh đã đúng tỉ lệ target thì render trực tiếp (không blur padding).
+    """
+    composer = ImageComposer(blur_radius=36, blur_downscale=0.12)
+    with Image.open(image_path) as src_raw, Image.open(logo_path) as logo_raw:
+        src = src_raw.convert("RGBA")
+        tw, th = target_post_size(src.width, src.height)
+
+        src_ratio = (src.width / src.height) if src.height else 0.0
+        dst_ratio = (tw / th) if th else 0.0
+        same_ratio = abs(src_ratio - dst_ratio) <= 0.01
+
+        if same_ratio:
+            canvas = src.copy().resize((tw, th), Image.LANCZOS)
+        else:
+            canvas = composer.create_blurred_background(src.convert("RGB"), (tw, th)).convert("RGBA")
+            fg = src.copy()
+            fg.thumbnail((tw, th), Image.LANCZOS)
+            ox = (tw - fg.width) // 2
+            oy = (th - fg.height) // 2
+            canvas.paste(fg, (ox, oy), fg)
+
+        logo = logo_raw.convert("RGBA")
+        lw, lh, lx, ly = scale_logo_rect_for_post((tw, th))
+        logo = logo.resize((lw, lh), Image.LANCZOS)
+        canvas.paste(logo, (lx, ly), logo)
+
+        ext = output_path.lower().rsplit(".", 1)[-1] if "." in output_path else "png"
+        if ext in {"jpg", "jpeg", "bmp"}:
+            canvas.convert("RGB").save(output_path, quality=95)
+        else:
+            canvas.save(output_path)
     
 # --- Cách sử dụng ---
 # composer = ImageComposer(blur_radius=50)

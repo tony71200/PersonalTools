@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import sys
 import traceback
+import json
 from typing import Dict, List, Optional, Tuple
 from abc import ABC, abstractmethod
 
@@ -71,6 +72,7 @@ from PyQt5.QtWidgets import (
 )
 
 from ig_merge_video_core import MergeOptions, ImageVideoOptions, VideoMerger, natural_key, FFmpegProbe
+from ig_image_process_core import process_post_image_with_logo, target_post_size, scale_logo_rect_for_post
 
 
 def norm(p: str) -> str:
@@ -726,8 +728,12 @@ class MergeVideoTab(QWidget):
         if not ordered:
             QMessageBox.warning(self, "Thiếu video", "Selected area đang trống.")
             return
+        if (len(ordered) > 0):
+            filename = os.path.split(os.path.dirname(ordered[0]))[-1]
+        else:
+            filename = ""
 
-        out_path, _ = QFileDialog.getSaveFileName(self, "Chọn nơi lưu output", "", "MP4 (*.mp4)")
+        out_path, _ = QFileDialog.getSaveFileName(self, "Chọn nơi lưu output", f"{filename}.mp4", "MP4 (*.mp4)")
         if not out_path:
             return
         out_path = norm(out_path)
@@ -839,6 +845,8 @@ import subprocess
 import tempfile
 import shutil
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
+VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v")
+
 def _ensure_ffmpeg_available() -> None:
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
         raise RuntimeError("Không tìm thấy ffmpeg/ffprobe trong PATH. Cài ffmpeg và thử lại.")
@@ -854,6 +862,106 @@ def _list_images(folder: str) -> List[str]:
         return []
     items.sort(key=natural_key)
     return items
+
+def _list_media_files(folder: str) -> List[str]:
+    items: List[str] = []
+    try:
+        for name in os.listdir(folder):
+            p = os.path.join(folder, name)
+            if not os.path.isfile(p):
+                continue
+            lname = name.lower()
+            if lname.endswith(IMAGE_EXTS) or lname.endswith(VIDEO_EXTS):
+                items.append(p)
+    except Exception:
+        return []
+    items.sort(key=natural_key)
+    return items
+
+
+def _probe_video_size(path: str) -> Optional[Tuple[int, int]]:
+    # Updated 2026-02-28: probe size bằng ffprobe JSON để tránh phụ thuộc FFmpegProbe.probe (không tồn tại).
+    try:
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "json",
+            path,
+        ]
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, text=True, encoding="utf-8", errors="ignore")
+        data = json.loads((p.stdout or "{}").strip() or "{}")
+        streams = data.get("streams") or []
+        if streams:
+            w = int((streams[0] or {}).get("width", 0) or 0)
+            h = int((streams[0] or {}).get("height", 0) or 0)
+            if w > 0 and h > 0:
+                return w, h
+    except Exception:
+        pass
+
+    # Fallback: dùng OpenCV để đọc kích thước nếu ffprobe không trả kết quả.
+    try:
+        cap = cv2.VideoCapture(path)
+        if cap.isOpened():
+            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            cap.release()
+            if w > 0 and h > 0:
+                return w, h
+    except Exception:
+        pass
+    return None
+
+
+def _run_add_logo_video_ffmpeg(input_path: str, output_path: str, logo_path: str, fps: int = 30) -> None:
+    # Updated 2026-02-28: xử lý blur theo đúng mong muốn (chỉ tạo blur nền khi lệch tỉ lệ target).
+    size = _probe_video_size(input_path)
+    if not size:
+        raise RuntimeError(f"Không đọc được metadata video: {input_path}")
+
+    tw, th = target_post_size(size[0], size[1])
+    lw, lh, lx, ly = scale_logo_rect_for_post((tw, th))
+
+    src_ratio = (size[0] / size[1]) if size[1] else 0.0
+    dst_ratio = (tw / th) if th else 0.0
+    same_ratio = abs(src_ratio - dst_ratio) <= 0.01
+
+    if same_ratio:
+        vf = (
+            f"[0:v]scale={tw}:{th}:force_original_aspect_ratio=decrease[mid];"
+            f"[1:v]scale={lw}:{lh}[logo];"
+            f"[mid][logo]overlay={lx}:{ly},format=yuv420p[v]"
+        )
+    else:
+        vf = (
+            f"[0:v]split=2[bgsrc][fgsrc];"
+            f"[bgsrc]scale={tw}:{th},gblur=sigma=30[bg];"
+            f"[fgsrc]scale={tw}:{th}:force_original_aspect_ratio=decrease[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2[mid];"
+            f"[1:v]scale={lw}:{lh}[logo];"
+            f"[mid][logo]overlay={lx}:{ly},format=yuv420p[v]"
+        )
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-i", logo_path,
+        "-filter_complex", vf,
+        "-map", "[v]",
+        "-map", "0:a?",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-r", str(max(1, int(fps))),
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-movflags", "+faststart",
+        output_path,
+    ]
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
+    if p.returncode != 0:
+        raise RuntimeError((p.stderr or p.stdout or "ffmpeg lỗi").strip())
 
 class ImageMakeWorker(Worker):
     outfilename = pyqtSignal(str)
@@ -927,6 +1035,7 @@ class MakeVideoFromImageTab(QWidget):
         super().__init__()
 
         self.img_thumb_cache = ImageThumbnailCache(thumb=110)
+        self.vid_thumb_cache = VideoThumbnailCache(thumb=110)
         self.logo_path: Optional[str] = None
 
         self._worker_thread: Optional[QThread] = None
@@ -1337,6 +1446,456 @@ class MakeVideoFromImageTab(QWidget):
         self._worker = None
 
 
+class AddLogoWorker(Worker):
+    outfilename = pyqtSignal(str)
+    processpercent = pyqtSignal(float)
+
+    def __init__(self, input_paths: List[str], output_path: str, logo_path: str, fps: int = 30, overwrite_in_place: bool = False) -> None:
+        super().__init__(
+            input_paths=input_paths,
+            output_path=output_path,
+            logo_path=logo_path,
+            keep_audio=True,
+            backend="fast_ffmpeg",
+            force_codec="libx264",
+        )
+        self.fps = int(max(1, fps))
+        self.overwrite_in_place = bool(overwrite_in_place)
+
+    def _make_output_file(self, src: str, out_folder: Optional[str]) -> str:
+        # Updated 2026-02-28: giữ nguyên tên file output, không thêm hậu tố _logo.
+        if self.overwrite_in_place or not out_folder:
+            return src
+        return os.path.join(out_folder, os.path.basename(src))
+
+    def _make_tmp_file_for_overwrite(self, src: str, is_video: bool) -> str:
+        folder = os.path.dirname(src)
+        stem, ext = os.path.splitext(os.path.basename(src))
+        temp_ext = ext or (".mp4" if is_video else ".png")
+        return os.path.join(folder, f".{stem}.tmp_addlogo{temp_ext}")
+
+    def run(self) -> None:
+        try:
+            _ensure_ffmpeg_available()
+            os.makedirs(self.output_path, exist_ok=True)
+
+            folders = [p for p in self.input_paths if p and os.path.isdir(p)]
+            if not folders:
+                raise RuntimeError("Không có folder hợp lệ để xử lý.")
+            if not self.logo_path or not os.path.isfile(self.logo_path):
+                raise RuntimeError("Vui lòng chọn logo hợp lệ.")
+
+            total_files = sum(len(_list_media_files(f)) for f in folders)
+            if total_files <= 0:
+                raise RuntimeError("Không tìm thấy ảnh/video trong các folder đã chọn.")
+
+            done = 0
+            for fidx, folder in enumerate(folders, start=1):
+                if self._should_cancel():
+                    self.cancelled.emit()
+                    return
+                media_files = _list_media_files(folder)
+                folder_name = os.path.basename(folder.rstrip(os.sep)) or f"folder_{fidx}"
+                out_folder: Optional[str] = None
+                if not self.overwrite_in_place:
+                    out_folder = os.path.join(self.output_path, folder_name)
+                    os.makedirs(out_folder, exist_ok=True)
+
+                self.status.emit(f"[{fidx}/{len(folders)}] {folder_name}: {len(media_files)} file(s)")
+
+                for src in media_files:
+                    if self._should_cancel():
+                        self.cancelled.emit()
+                        return
+
+                    name = os.path.basename(src)
+                    stem, ext = os.path.splitext(name)
+                    ext_l = ext.lower()
+                    is_video = ext_l in VIDEO_EXTS
+                    final_out = self._make_output_file(src, out_folder)
+                    work_out = final_out
+                    if self.overwrite_in_place:
+                        work_out = self._make_tmp_file_for_overwrite(src, is_video=is_video)
+
+                    if is_video:
+                        _run_add_logo_video_ffmpeg(src, work_out, self.logo_path, fps=self.fps)
+                    else:
+                        process_post_image_with_logo(src, self.logo_path, work_out)
+
+                    if self.overwrite_in_place:
+                        os.replace(work_out, final_out)
+
+                    done += 1
+                    if self.overwrite_in_place:
+                        shown = final_out
+                    else:
+                        shown = os.path.relpath(final_out, self.output_path)
+                    self.outfilename.emit(shown)
+                    self.status.emit(f"  ✓ {name}")
+                    self.processpercent.emit(done / total_files * 100.0)
+
+            self.finished.emit(self.output_path, "libx264", False, "fast_ffmpeg")
+        except Exception as e:
+            self.error.emit("Lỗi Add Logo", f"{e}\n\n{traceback.format_exc()}")
+
+
+class AddLogoTab(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.img_thumb_cache = ImageThumbnailCache(thumb=110)
+        self.vid_thumb_cache = VideoThumbnailCache(thumb=110)
+        self.logo_path: Optional[str] = None
+
+        self._worker_thread: Optional[QThread] = None
+        self._worker: Optional[AddLogoWorker] = None
+        self._current_single_folder: Optional[str] = None
+        self._last_parent_folder: Optional[str] = None
+
+        self._setup_ui()
+        self._sync_left_mode()
+
+    def _setup_ui(self) -> None:
+        root = QHBoxLayout(self)
+        splitter = QSplitter(Qt.Horizontal)
+        root.addWidget(splitter)
+
+        left = QWidget()
+        left_lay = QVBoxLayout(left)
+        left_lay.setContentsMargins(8, 8, 8, 8)
+        left_lay.setSpacing(8)
+
+        toolbar = QHBoxLayout()
+        self.btn_add = QPushButton("＋")
+        self.btn_add.setToolTip("Chọn folder (tùy Batch Parent Folder)")
+        self.btn_add.clicked.connect(self._handle_plus)
+
+        self.btn_clear = QPushButton("Clear")
+        self.btn_clear.clicked.connect(self._clear_left)
+
+        self.chk_batch_from_parent = QCheckBox("Batch Parent Folder")
+        self.chk_batch_from_parent.setChecked(True)
+        self.chk_batch_from_parent.stateChanged.connect(self._sync_left_mode)
+
+        toolbar.addWidget(self.btn_add)
+        toolbar.addStretch(1)
+        toolbar.addWidget(self.btn_clear)
+        left_lay.addLayout(toolbar)
+        left_lay.addWidget(self.chk_batch_from_parent)
+
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Folders"])
+        self.tree.itemSelectionChanged.connect(self._on_tree_selection)
+
+        self.media_name_list = QListWidget()
+        self.media_name_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.media_name_list.currentItemChanged.connect(self._on_media_name_select)
+
+        left_lay.addWidget(self.tree, 1)
+        left_lay.addWidget(self.media_name_list, 1)
+
+        self.log_box = QTextEdit()
+        self.log_box.setReadOnly(True)
+        self.log_box.setMinimumHeight(120)
+        left_lay.addWidget(self.log_box)
+        splitter.addWidget(left)
+
+        right = QWidget()
+        rlay = QVBoxLayout(right)
+        rlay.setContentsMargins(8, 8, 8, 8)
+        rlay.setSpacing(8)
+
+        top = QGroupBox("Preview Media")
+        top_lay = QHBoxLayout(top)
+
+        self.thumb_list = QListWidget()
+        self.thumb_list.setViewMode(QListWidget.IconMode)
+        self.thumb_list.setResizeMode(QListWidget.Adjust)
+        self.thumb_list.setMovement(QListWidget.Static)
+        self.thumb_list.setIconSize(QSize(110, 110))
+        self.thumb_list.setSpacing(6)
+        self.thumb_list.setSelectionMode(QAbstractItemView.NoSelection)
+
+        self.outname_list = QListWidget()
+        self.outname_list.setViewMode(QListWidget.ListMode)
+        self.outname_list.setResizeMode(QListWidget.Adjust)
+        self.outname_list.setMovement(QListWidget.Static)
+        self.outname_list.setSelectionMode(QAbstractItemView.NoSelection)
+
+        top_lay.addWidget(self.thumb_list, 3)
+        top_lay.addWidget(self.outname_list, 1)
+        rlay.addWidget(top, 2)
+
+        out_group = QGroupBox("Output")
+        out_lay = QGridLayout(out_group)
+
+        self.out_dir = QLineEdit()
+        self.out_dir.setPlaceholderText("Output folder (mặc định: folder cha)")
+        self.btn_pick_out = QPushButton("Browse")
+        self.btn_pick_out.clicked.connect(self._pick_output_dir)
+
+        self.in_fps = QLineEdit("30")
+
+        self.logo_line = QLineEdit()
+        self.logo_line.setPlaceholderText("Logo (bắt buộc)")
+        self.btn_pick_logo = QPushButton("Browse")
+        self.btn_pick_logo.clicked.connect(self._pick_logo)
+
+        self.btn_run = QPushButton("Run")
+        self.btn_run.clicked.connect(self._start_add_logo)
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self._cancel_add_logo)
+        self.btn_cancel.setEnabled(False)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setVisible(False)
+
+        row = 0
+        out_lay.addWidget(QLabel("Output dir"), row, 0)
+        out_lay.addWidget(self.out_dir, row, 1, 1, 2)
+        out_lay.addWidget(self.btn_pick_out, row, 3)
+        row += 1
+
+        out_lay.addWidget(QLabel("FPS (video output)"), row, 0)
+        out_lay.addWidget(self.in_fps, row, 1, 1, 2)
+        out_lay.addWidget(QLabel(""), row, 3)
+        row += 1
+
+        out_lay.addWidget(QLabel("Logo"), row, 0)
+        out_lay.addWidget(self.logo_line, row, 1, 1, 2)
+        out_lay.addWidget(self.btn_pick_logo, row, 3)
+        row += 1
+
+        out_lay.addWidget(self.btn_run, row, 2)
+        out_lay.addWidget(self.btn_cancel, row, 3)
+        row += 1
+
+        out_lay.addWidget(self.progress, row, 0, 1, 4)
+        rlay.addWidget(out_group, 1)
+
+        splitter.addWidget(right)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
+
+    def _append_log(self, line: str) -> None:
+        self.log_box.append(line)
+        self.log_box.moveCursor(self.log_box.textCursor().End)
+
+    def _sync_left_mode(self) -> None:
+        batch = self.chk_batch_from_parent.isChecked()
+        self.tree.setVisible(batch)
+        self.media_name_list.setVisible(not batch)
+        self.thumb_list.clear()
+
+    def _clear_left(self) -> None:
+        self.tree.clear()
+        self.media_name_list.clear()
+        self.thumb_list.clear()
+        self._current_single_folder = None
+        self._last_parent_folder = None
+
+    def _handle_plus(self) -> None:
+        if self.chk_batch_from_parent.isChecked():
+            d = QFileDialog.getExistingDirectory(self, "Chọn folder cha")
+            if not d:
+                return
+            d = norm(d)
+            self._last_parent_folder = d
+            self._load_parent_folder(d)
+        else:
+            d = QFileDialog.getExistingDirectory(self, "Chọn 1 folder media")
+            if not d:
+                return
+            d = norm(d)
+            self._current_single_folder = d
+            self._load_single_folder_media(d)
+
+    def _load_parent_folder(self, root: str) -> None:
+        self.tree.clear()
+        root_item = QTreeWidgetItem([root])
+        root_item.setData(0, Qt.UserRole, root)
+        self.tree.addTopLevelItem(root_item)
+        try:
+            subs = [os.path.join(root, name) for name in os.listdir(root)]
+            subs = [p for p in subs if os.path.isdir(p)]
+            subs.sort(key=natural_key)
+            for p in subs:
+                child = QTreeWidgetItem([os.path.basename(p)])
+                child.setData(0, Qt.UserRole, p)
+                root_item.addChild(child)
+        except Exception as e:
+            self._append_log(f"⚠️ Không đọc subfolder: {e}")
+        root_item.setExpanded(True)
+        self._append_log(f"Parent: {root} (subfolders={root_item.childCount()})")
+
+    def _load_single_folder_media(self, folder: str) -> None:
+        self.media_name_list.clear()
+        media = _list_media_files(folder)
+        for p in media:
+            it = QListWidgetItem(os.path.basename(p))
+            it.setData(Qt.UserRole, p)
+            self.media_name_list.addItem(it)
+        self._append_log(f"Single folder: {folder} (files={len(media)})")
+        self._preview_folder(folder)
+
+    def _pick_output_dir(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Chọn output folder")
+        if d:
+            self.out_dir.setText(norm(d))
+
+    def _pick_logo(self) -> None:
+        p, _ = QFileDialog.getOpenFileName(self, "Chọn logo", filter="Images (*.png *.jpg *.jpeg *.webp)")
+        if p:
+            self.logo_line.setText(norm(p))
+            self.logo_path = norm(p)
+            self._append_log(f"Logo: {norm(p)}")
+
+    def _selected_folder_from_tree(self) -> Optional[str]:
+        items = self.tree.selectedItems()
+        if not items:
+            return None
+        return items[0].data(0, Qt.UserRole)
+
+    def _folders_to_process(self) -> List[str]:
+        if self.chk_batch_from_parent.isChecked():
+            sel_items = self.tree.selectedItems()
+            if not sel_items:
+                if self.tree.topLevelItemCount() == 1:
+                    root = self.tree.topLevelItem(0)
+                    return [root.child(i).data(0, Qt.UserRole) for i in range(root.childCount())]
+                return []
+            item = sel_items[0]
+            if item.parent() is None and item.childCount() > 0:
+                return [item.child(i).data(0, Qt.UserRole) for i in range(item.childCount())]
+            folder = item.data(0, Qt.UserRole)
+            return [folder] if folder else []
+        return [self._current_single_folder] if self._current_single_folder else []
+
+    def _on_tree_selection(self) -> None:
+        folder = self._selected_folder_from_tree()
+        if folder:
+            self._preview_folder(folder)
+
+    def _on_media_name_select(self, _cur: Optional[QListWidgetItem], _prev: Optional[QListWidgetItem]) -> None:
+        if self._current_single_folder:
+            self._preview_folder(self._current_single_folder)
+
+    def _preview_folder(self, folder: str) -> None:
+        media = _list_media_files(folder)
+        self.thumb_list.clear()
+        if not media:
+            self.thumb_list.addItem(QListWidgetItem("No media"))
+            return
+        for p in media[:300]:
+            if p.lower().endswith(VIDEO_EXTS):
+                icon = self.vid_thumb_cache.get(p)
+            else:
+                icon = self.img_thumb_cache.get(p)
+            it = QListWidgetItem(icon, "")
+            it.setToolTip(p)
+            self.thumb_list.addItem(it)
+
+    def _start_add_logo(self) -> None:
+        folders = self._folders_to_process()
+        if not folders:
+            QMessageBox.warning(self, "Thiếu folder", "Chọn folder hoặc folder cha để xử lý.")
+            return
+        logo_path = self.logo_line.text().strip()
+        if not logo_path or not os.path.isfile(logo_path):
+            QMessageBox.warning(self, "Thiếu logo", "Vui lòng chọn logo hợp lệ.")
+            return
+
+        out_dir_input = self.out_dir.text().strip()
+        out_dir = norm(out_dir_input) if out_dir_input else ""
+
+        # Updated 2026-02-28:
+        # - Nếu out dir rỗng hoặc trùng input -> ghi đè file cũ.
+        overwrite_in_place = False
+        if not out_dir:
+            overwrite_in_place = True
+        else:
+            folder_norms = {norm(f) for f in folders}
+            if out_dir in folder_norms:
+                overwrite_in_place = True
+
+        if overwrite_in_place:
+            out_dir = folders[0]
+
+        try:
+            fps = int(float(self.in_fps.text().strip()))
+        except Exception:
+            QMessageBox.warning(self, "Sai input", "FPS không hợp lệ.")
+            return
+
+        self._append_log(
+            f"== Start add logo ==\nOutputDir={out_dir}\nOverwriteInPlace={'YES' if overwrite_in_place else 'NO'}\nFolders={len(folders)}\n"
+            f"Logo={logo_path}\n"
+        )
+        self.outname_list.clear()
+        self._set_running(True)
+
+        self._worker_thread = QThread()
+        self._worker = AddLogoWorker(
+            input_paths=folders,
+            output_path=norm(out_dir),
+            logo_path=logo_path,
+            fps=fps,
+            overwrite_in_place=overwrite_in_place,
+        )
+        self._worker.moveToThread(self._worker_thread)
+
+        self._worker_thread.started.connect(self._worker.run)
+        self._worker.status.connect(self._append_log)
+        self._worker.finished.connect(self._on_done)
+        self._worker.cancelled.connect(self._on_cancelled)
+        self._worker.error.connect(self._on_error)
+        self._worker.outfilename.connect(lambda name: self.outname_list.addItem(name))
+        self._worker.processpercent.connect(lambda p: self.progress.setValue(int(p)))
+        self._worker_thread.finished.connect(self._cleanup_worker)
+
+        self._append_log("▶️ Start add logo...")
+        self._worker_thread.start()
+
+    def _set_running(self, on: bool) -> None:
+        self.progress.setVisible(on)
+        self.btn_cancel.setEnabled(on)
+        self.btn_run.setEnabled(not on)
+        self.btn_add.setEnabled(not on)
+        self.btn_clear.setEnabled(not on)
+
+    def _cancel_add_logo(self) -> None:
+        if self._worker:
+            self._append_log("⏹ Cancel requested...")
+            self._worker.request_cancel()
+
+    def _on_done(self, out_dir: str, _encoder: str, _isgpu: bool, _backend: str) -> None:
+        self._append_log("== Done ==")
+        self._cleanup_worker()
+        self._set_running(False)
+        QMessageBox.information(self, "Hoàn tất", f"Xuất xong vào:\n{out_dir}")
+
+    def _on_cancelled(self) -> None:
+        self._append_log("== CANCELLED ==")
+        self._cleanup_worker()
+        self._set_running(False)
+        QMessageBox.information(self, "Đã huỷ", "Đã huỷ tác vụ.")
+
+    def _on_error(self, title: str, detail: str) -> None:
+        self._append_log("== ERROR ==")
+        self._append_log(detail)
+        self._cleanup_worker()
+        self._set_running(False)
+        QMessageBox.critical(self, "Lỗi", f"{title}\n\nXem log để biết chi tiết.")
+
+    def _cleanup_worker(self) -> None:
+        if self._worker_thread:
+            self._worker_thread.quit()
+            self._worker_thread.wait(1500)
+        self._worker_thread = None
+        self._worker = None
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -1348,9 +1907,11 @@ class MainWindow(QMainWindow):
 
         self.tab_merge = MergeVideoTab()
         self.tab_make = MakeVideoFromImageTab()
+        self.tab_add_logo = AddLogoTab()
 
         tabs.addTab(self.tab_merge, "Merge Video")
         tabs.addTab(self.tab_make, "Make Video from Image")
+        tabs.addTab(self.tab_add_logo, "Add Logo")
 
 
 def main() -> None:
