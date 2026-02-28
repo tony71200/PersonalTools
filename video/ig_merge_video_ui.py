@@ -1446,7 +1446,7 @@ class AddLogoWorker(Worker):
     outfilename = pyqtSignal(str)
     processpercent = pyqtSignal(float)
 
-    def __init__(self, input_paths: List[str], output_path: str, logo_path: str, fps: int = 30) -> None:
+    def __init__(self, input_paths: List[str], output_path: str, logo_path: str, fps: int = 30, overwrite_in_place: bool = False) -> None:
         super().__init__(
             input_paths=input_paths,
             output_path=output_path,
@@ -1456,6 +1456,19 @@ class AddLogoWorker(Worker):
             force_codec="libx264",
         )
         self.fps = int(max(1, fps))
+        self.overwrite_in_place = bool(overwrite_in_place)
+
+    def _make_output_file(self, src: str, out_folder: Optional[str]) -> str:
+        # Updated 2026-02-28: giữ nguyên tên file output, không thêm hậu tố _logo.
+        if self.overwrite_in_place or not out_folder:
+            return src
+        return os.path.join(out_folder, os.path.basename(src))
+
+    def _make_tmp_file_for_overwrite(self, src: str, is_video: bool) -> str:
+        folder = os.path.dirname(src)
+        stem, ext = os.path.splitext(os.path.basename(src))
+        temp_ext = ext or (".mp4" if is_video else ".png")
+        return os.path.join(folder, f".{stem}.tmp_addlogo{temp_ext}")
 
     def run(self) -> None:
         try:
@@ -1479,8 +1492,10 @@ class AddLogoWorker(Worker):
                     return
                 media_files = _list_media_files(folder)
                 folder_name = os.path.basename(folder.rstrip(os.sep)) or f"folder_{fidx}"
-                out_folder = os.path.join(self.output_path, folder_name)
-                os.makedirs(out_folder, exist_ok=True)
+                out_folder: Optional[str] = None
+                if not self.overwrite_in_place:
+                    out_folder = os.path.join(self.output_path, folder_name)
+                    os.makedirs(out_folder, exist_ok=True)
 
                 self.status.emit(f"[{fidx}/{len(folders)}] {folder_name}: {len(media_files)} file(s)")
 
@@ -1492,15 +1507,26 @@ class AddLogoWorker(Worker):
                     name = os.path.basename(src)
                     stem, ext = os.path.splitext(name)
                     ext_l = ext.lower()
-                    if ext_l in VIDEO_EXTS:
-                        out_file = os.path.join(out_folder, f"{stem}_logo.mp4")
-                        _run_add_logo_video_ffmpeg(src, out_file, self.logo_path, fps=self.fps)
+                    is_video = ext_l in VIDEO_EXTS
+                    final_out = self._make_output_file(src, out_folder)
+                    work_out = final_out
+                    if self.overwrite_in_place:
+                        work_out = self._make_tmp_file_for_overwrite(src, is_video=is_video)
+
+                    if is_video:
+                        _run_add_logo_video_ffmpeg(src, work_out, self.logo_path, fps=self.fps)
                     else:
-                        out_file = os.path.join(out_folder, f"{stem}_logo{ext_l or '.png'}")
-                        process_post_image_with_logo(src, self.logo_path, out_file)
+                        process_post_image_with_logo(src, self.logo_path, work_out)
+
+                    if self.overwrite_in_place:
+                        os.replace(work_out, final_out)
 
                     done += 1
-                    self.outfilename.emit(os.path.relpath(out_file, self.output_path))
+                    if self.overwrite_in_place:
+                        shown = final_out
+                    else:
+                        shown = os.path.relpath(final_out, self.output_path)
+                    self.outfilename.emit(shown)
                     self.status.emit(f"  ✓ {name}")
                     self.processpercent.emit(done / total_files * 100.0)
 
@@ -1776,16 +1802,21 @@ class AddLogoTab(QWidget):
             QMessageBox.warning(self, "Thiếu logo", "Vui lòng chọn logo hợp lệ.")
             return
 
-        out_dir = self.out_dir.text().strip()
+        out_dir_input = self.out_dir.text().strip()
+        out_dir = norm(out_dir_input) if out_dir_input else ""
+
+        # Updated 2026-02-28:
+        # - Nếu out dir rỗng hoặc trùng input -> ghi đè file cũ.
+        overwrite_in_place = False
         if not out_dir:
-            if self.chk_batch_from_parent.isChecked():
-                out_dir = self._last_parent_folder or (os.path.dirname(folders[0]) if folders else "")
-            else:
-                out_dir = os.path.dirname(folders[0]) if folders else ""
-            out_dir = norm(out_dir) if out_dir else ""
-        if not out_dir:
-            QMessageBox.warning(self, "Thiếu output", "Không xác định được output folder.")
-            return
+            overwrite_in_place = True
+        else:
+            folder_norms = {norm(f) for f in folders}
+            if out_dir in folder_norms:
+                overwrite_in_place = True
+
+        if overwrite_in_place:
+            out_dir = folders[0]
 
         try:
             fps = int(float(self.in_fps.text().strip()))
@@ -1794,7 +1825,7 @@ class AddLogoTab(QWidget):
             return
 
         self._append_log(
-            f"== Start add logo ==\nOutputDir={out_dir}\nFolders={len(folders)}\n"
+            f"== Start add logo ==\nOutputDir={out_dir}\nOverwriteInPlace={'YES' if overwrite_in_place else 'NO'}\nFolders={len(folders)}\n"
             f"Logo={logo_path}\n"
         )
         self.outname_list.clear()
@@ -1806,6 +1837,7 @@ class AddLogoTab(QWidget):
             output_path=norm(out_dir),
             logo_path=logo_path,
             fps=fps,
+            overwrite_in_place=overwrite_in_place,
         )
         self._worker.moveToThread(self._worker_thread)
 
