@@ -64,6 +64,9 @@ except Exception:  # pragma: no cover
 
 
 TARGET_SIZE: Tuple[int, int] = (1080, 1920)
+# Updated 2026-02-28:
+# - Chuẩn logo cho luồng reel 9:16.
+# - Base frame 1080x1920, logo 160x229, vị trí (60, 280).
 REEL_BASE_SIZE: Tuple[int, int] = (1080, 1920)
 REEL_LOGO_SIZE: Tuple[int, int] = (160, 229)
 REEL_LOGO_POS: Tuple[int, int] = (60, 280)
@@ -201,6 +204,7 @@ def scale_logo_rect_from_base(
     base_logo_size: Tuple[int, int],
     base_logo_pos: Tuple[int, int],
 ) -> Tuple[int, int, int, int]:
+    # Updated 2026-02-28: scale logo rect theo tỉ lệ từ khung base bất kỳ.
     tw, th = target_size
     bw, bh = base_size
     sx = tw / bw

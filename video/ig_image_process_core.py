@@ -110,19 +110,30 @@ def scale_logo_rect_for_post(target_size: Tuple[int, int]) -> Tuple[int, int, in
 
 
 def process_post_image_with_logo(image_path: str, logo_path: str, output_path: str) -> None:
-    """Create IG post image with forced blur background and proportional logo."""
+    """Create IG post image with proportional logo.
+
+    Updated 2026-02-28:
+    - Chỉ tạo blur background khi ảnh nguồn lệch tỉ lệ target post.
+    - Nếu ảnh đã đúng tỉ lệ target thì render trực tiếp (không blur padding).
+    """
     composer = ImageComposer(blur_radius=36, blur_downscale=0.12)
     with Image.open(image_path) as src_raw, Image.open(logo_path) as logo_raw:
         src = src_raw.convert("RGBA")
         tw, th = target_post_size(src.width, src.height)
 
-        canvas = composer.create_blurred_background(src.convert("RGB"), (tw, th)).convert("RGBA")
+        src_ratio = (src.width / src.height) if src.height else 0.0
+        dst_ratio = (tw / th) if th else 0.0
+        same_ratio = abs(src_ratio - dst_ratio) <= 0.01
 
-        fg = src.copy()
-        fg.thumbnail((tw, th), Image.LANCZOS)
-        ox = (tw - fg.width) // 2
-        oy = (th - fg.height) // 2
-        canvas.paste(fg, (ox, oy), fg)
+        if same_ratio:
+            canvas = src.copy().resize((tw, th), Image.LANCZOS)
+        else:
+            canvas = composer.create_blurred_background(src.convert("RGB"), (tw, th)).convert("RGBA")
+            fg = src.copy()
+            fg.thumbnail((tw, th), Image.LANCZOS)
+            ox = (tw - fg.width) // 2
+            oy = (th - fg.height) // 2
+            canvas.paste(fg, (ox, oy), fg)
 
         logo = logo_raw.convert("RGBA")
         lw, lh, lx, ly = scale_logo_rect_for_post((tw, th))

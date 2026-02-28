@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import sys
 import traceback
+import json
 from typing import Dict, List, Optional, Tuple
 from abc import ABC, abstractmethod
 
@@ -875,18 +876,43 @@ def _list_media_files(folder: str) -> List[str]:
 
 
 def _probe_video_size(path: str) -> Optional[Tuple[int, int]]:
+    # Updated 2026-02-28: probe size bằng ffprobe JSON để tránh phụ thuộc FFmpegProbe.probe (không tồn tại).
     try:
-        info = FFmpegProbe.probe(path)
-        w = int(info.get("width", 0) or 0)
-        h = int(info.get("height", 0) or 0)
-        if w > 0 and h > 0:
-            return w, h
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "json",
+            path,
+        ]
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, text=True, encoding="utf-8", errors="ignore")
+        data = json.loads((p.stdout or "{}").strip() or "{}")
+        streams = data.get("streams") or []
+        if streams:
+            w = int((streams[0] or {}).get("width", 0) or 0)
+            h = int((streams[0] or {}).get("height", 0) or 0)
+            if w > 0 and h > 0:
+                return w, h
+    except Exception:
+        pass
+
+    # Fallback: dùng OpenCV để đọc kích thước nếu ffprobe không trả kết quả.
+    try:
+        cap = cv2.VideoCapture(path)
+        if cap.isOpened():
+            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            cap.release()
+            if w > 0 and h > 0:
+                return w, h
     except Exception:
         pass
     return None
 
 
 def _run_add_logo_video_ffmpeg(input_path: str, output_path: str, logo_path: str, fps: int = 30) -> None:
+    # Updated 2026-02-28: xử lý blur theo đúng mong muốn (chỉ tạo blur nền khi lệch tỉ lệ target).
     size = _probe_video_size(input_path)
     if not size:
         raise RuntimeError(f"Không đọc được metadata video: {input_path}")
@@ -894,14 +920,25 @@ def _run_add_logo_video_ffmpeg(input_path: str, output_path: str, logo_path: str
     tw, th = target_post_size(size[0], size[1])
     lw, lh, lx, ly = scale_logo_rect_for_post((tw, th))
 
-    vf = (
-        f"[0:v]split=2[bgsrc][fgsrc];"
-        f"[bgsrc]scale={tw}:{th}:force_original_aspect_ratio=increase,crop={tw}:{th},gblur=sigma=28[bg];"
-        f"[fgsrc]scale={tw}:{th}:force_original_aspect_ratio=decrease[fg];"
-        f"[bg][fg]overlay=(W-w)/2:(H-h)/2[mid];"
-        f"[1:v]scale={lw}:{lh}[logo];"
-        f"[mid][logo]overlay={lx}:{ly},format=yuv420p[v]"
-    )
+    src_ratio = (size[0] / size[1]) if size[1] else 0.0
+    dst_ratio = (tw / th) if th else 0.0
+    same_ratio = abs(src_ratio - dst_ratio) <= 0.01
+
+    if same_ratio:
+        vf = (
+            f"[0:v]scale={tw}:{th}:force_original_aspect_ratio=decrease[mid];"
+            f"[1:v]scale={lw}:{lh}[logo];"
+            f"[mid][logo]overlay={lx}:{ly},format=yuv420p[v]"
+        )
+    else:
+        vf = (
+            f"[0:v]split=2[bgsrc][fgsrc];"
+            f"[bgsrc]scale={tw}:{th},gblur=sigma=30[bg];"
+            f"[fgsrc]scale={tw}:{th}:force_original_aspect_ratio=decrease[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2[mid];"
+            f"[1:v]scale={lw}:{lh}[logo];"
+            f"[mid][logo]overlay={lx}:{ly},format=yuv420p[v]"
+        )
 
     cmd = [
         "ffmpeg", "-y",
