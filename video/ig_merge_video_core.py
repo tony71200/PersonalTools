@@ -64,6 +64,9 @@ except Exception:  # pragma: no cover
 
 
 TARGET_SIZE: Tuple[int, int] = (1080, 1920)
+REEL_BASE_SIZE: Tuple[int, int] = (1080, 1920)
+REEL_LOGO_SIZE: Tuple[int, int] = (160, 229)
+REEL_LOGO_POS: Tuple[int, int] = (60, 280)
 TRANSITION_RANGE: Tuple[float, float] = (0.4, 0.8)
 KENBURNS_MAX_ZOOM: float = 0.06
 KENBURNS_MAX_PAN: int = 80
@@ -190,6 +193,25 @@ def ff_escape_commas(expr: str) -> str:
     Why: ffmpeg uses ',' to separate filters; commas in expressions must be escaped '\,'.
     """
     return expr.replace(",", r"\,")
+
+
+def scale_logo_rect_from_base(
+    target_size: Tuple[int, int],
+    base_size: Tuple[int, int],
+    base_logo_size: Tuple[int, int],
+    base_logo_pos: Tuple[int, int],
+) -> Tuple[int, int, int, int]:
+    tw, th = target_size
+    bw, bh = base_size
+    sx = tw / bw
+    sy = th / bh
+    lw = max(1, int(round(base_logo_size[0] * sx)))
+    lh = max(1, int(round(base_logo_size[1] * sy)))
+    lx = max(0, int(round(base_logo_pos[0] * sx)))
+    ly = max(0, int(round(base_logo_pos[1] * sy)))
+    lx = min(lx, max(0, tw - lw))
+    ly = min(ly, max(0, th - lh))
+    return lw, lh, lx, ly
 
 
 class HardwareInfo:
@@ -426,8 +448,6 @@ class FFmpegMerger:
         durations: Sequence[float],
         transitions: Sequence[float],
         logo_input_index: int,
-        logo_size_ratio: float = 0.14,
-        logo_margin: int = 30,
     ) -> Tuple[str, str, Optional[str]]:
         tw, th = self.opts.target_size
 
@@ -492,10 +512,15 @@ class FFmpegMerger:
                 a_out = cur
 
         logo_label = "logo"
-        logo_w = int(min(tw, th) * logo_size_ratio)
-        parts.append(f"[{logo_input_index}:v]scale={logo_w}:-1[{logo_label}]")
+        logo_w, logo_h, logo_x, logo_y = scale_logo_rect_from_base(
+            target_size=(tw, th),
+            base_size=REEL_BASE_SIZE,
+            base_logo_size=REEL_LOGO_SIZE,
+            base_logo_pos=REEL_LOGO_POS,
+        )
+        parts.append(f"[{logo_input_index}:v]scale={logo_w}:{logo_h}[{logo_label}]")
         v_final = "vfinal"
-        parts.append(f"[{v_out}][{logo_label}]overlay={logo_margin}:{th}-h-{logo_margin}[{v_final}]")
+        parts.append(f"[{v_out}][{logo_label}]overlay={logo_x}:{logo_y}[{v_final}]")
 
         filter_complex = ";".join(parts)
         return filter_complex, v_final, a_out
@@ -861,8 +886,14 @@ class MoviePyMerger:
             final = self._build_transitioned_timeline(processed, status=status)
 
             logo_file = LogoFactory.ensure_logo_file(logo_path)
-            logo = ImageClip(logo_file).set_duration(final.duration).resize(width=int(min(tw, th) * 0.14))
-            final = CompositeVideoClip([final, logo.set_position((30, th - logo.h - 30))], size=(tw, th)).set_duration(final.duration)
+            lw, lh, lx, ly = scale_logo_rect_from_base(
+                target_size=(tw, th),
+                base_size=REEL_BASE_SIZE,
+                base_logo_size=REEL_LOGO_SIZE,
+                base_logo_pos=REEL_LOGO_POS,
+            )
+            logo = ImageClip(logo_file).set_duration(final.duration).resize(width=lw, height=lh)
+            final = CompositeVideoClip([final, logo.set_position((lx, ly))], size=(tw, th)).set_duration(final.duration)
 
             ffmpeg_params = self._compose_ffmpeg_params()
             safe_call_status(status, f"Export ({self.encoder.label})...")
@@ -962,11 +993,15 @@ class MoviePyMerger:
             if logo_file and os.path.isfile(logo_file):
                 try:
                     tw, th = self.opts.target_size
-                    logo_h = int(min(tw, th) * 0.14)
-                    margin = 30
-                    logo = ImageClip(logo_file).set_duration(out.duration).resize(height=logo_h)
+                    lw, lh, lx, ly = scale_logo_rect_from_base(
+                        target_size=(tw, th),
+                        base_size=REEL_BASE_SIZE,
+                        base_logo_size=REEL_LOGO_SIZE,
+                        base_logo_pos=REEL_LOGO_POS,
+                    )
+                    logo = ImageClip(logo_file).set_duration(out.duration).resize(width=lw, height=lh)
                     clips_to_close.append(logo)
-                    logo = logo.set_position((margin, th - logo_h - margin))
+                    logo = logo.set_position((lx, ly))
                     out = CompositeVideoClip([out, logo], size=(tw, th)).set_duration(out.duration)
                 except Exception:
                     pass
