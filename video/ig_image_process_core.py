@@ -3,8 +3,8 @@ from enum import Enum
 from typing import Tuple
 
 POST_BASE_SIZE: Tuple[int, int] = (1080, 1350)
-POST_BASE_LOGO_SIZE: Tuple[int, int] = (180, 258)
-POST_BASE_LOGO_POS: Tuple[int, int] = (840, 1032)
+POST_BASE_LOGO_SIZE: Tuple[int, int] = (90, 129)
+POST_BASE_LOGO_POS: Tuple[int, int] = (60,  POST_BASE_SIZE[1] - 60 -POST_BASE_LOGO_SIZE[0])
 
 class LogoPosition(Enum):
     TOP_LEFT = 1

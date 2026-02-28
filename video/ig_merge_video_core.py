@@ -68,7 +68,7 @@ TARGET_SIZE: Tuple[int, int] = (1080, 1920)
 # - Chuẩn logo cho luồng reel 9:16.
 # - Base frame 1080x1920, logo 160x229, vị trí (60, 280).
 REEL_BASE_SIZE: Tuple[int, int] = (1080, 1920)
-REEL_LOGO_SIZE: Tuple[int, int] = (160, 229)
+REEL_LOGO_SIZE: Tuple[int, int] = (100, 143)
 REEL_LOGO_POS: Tuple[int, int] = (60, 280)
 TRANSITION_RANGE: Tuple[float, float] = (0.4, 0.8)
 KENBURNS_MAX_ZOOM: float = 0.06

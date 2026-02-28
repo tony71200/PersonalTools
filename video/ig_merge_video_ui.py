@@ -728,8 +728,12 @@ class MergeVideoTab(QWidget):
         if not ordered:
             QMessageBox.warning(self, "Thiếu video", "Selected area đang trống.")
             return
+        if (len(ordered) > 0):
+            filename = os.path.split(os.path.dirname(ordered[0]))[-1]
+        else:
+            filename = ""
 
-        out_path, _ = QFileDialog.getSaveFileName(self, "Chọn nơi lưu output", "", "MP4 (*.mp4)")
+        out_path, _ = QFileDialog.getSaveFileName(self, "Chọn nơi lưu output", f"{filename}.mp4", "MP4 (*.mp4)")
         if not out_path:
             return
         out_path = norm(out_path)
