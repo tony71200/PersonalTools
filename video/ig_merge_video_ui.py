@@ -863,12 +863,20 @@ def _list_images(folder: str) -> List[str]:
     items.sort(key=natural_key)
     return items
 
+def _is_addlogo_temp_file(name: str) -> bool:
+    lname = name.lower()
+    return lname.startswith(".") and ".tmp_addlogo" in lname
+
+
 def _list_media_files(folder: str) -> List[str]:
     items: List[str] = []
     try:
         for name in os.listdir(folder):
             p = os.path.join(folder, name)
             if not os.path.isfile(p):
+                continue
+            if _is_addlogo_temp_file(name):
+                # Bỏ qua file tạm nội bộ còn sót lại từ chế độ overwrite-in-place.
                 continue
             lname = name.lower()
             if lname.endswith(IMAGE_EXTS) or lname.endswith(VIDEO_EXTS):
@@ -930,7 +938,9 @@ def _run_add_logo_video_ffmpeg(input_path: str, output_path: str, logo_path: str
 
     if same_ratio:
         vf = (
-            f"[0:v]scale={tw}:{th}:force_original_aspect_ratio=decrease[mid];"
+            # Same behavior as image pipeline: khi tỉ lệ gần trùng target thì scale full khung,
+            # tránh tạo kích thước lẻ (vd 1069x1350) khiến libx264 báo "width not divisible by 2".
+            f"[0:v]scale={tw}:{th}[mid];"
             f"[1:v]scale={lw}:{lh}[logo];"
             f"[mid][logo]overlay={lx}:{ly},format=yuv420p[v]"
         )
