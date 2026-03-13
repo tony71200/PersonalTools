@@ -2050,7 +2050,7 @@ class MainWindow(QMainWindow):
 def main() -> None:
     app = QApplication(sys.argv)
     try:
-        with open("MacOS.qss", "r") as f:
+        with open("MacOS.qss"), "r" as f:
             app.setStyleSheet(f.read())
     except Exception:
         pass
