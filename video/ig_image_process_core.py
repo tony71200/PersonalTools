@@ -96,13 +96,21 @@ def target_post_size(width: int, height: int) -> Tuple[int, int]:
 def scale_logo_rect_for_post(target_size: Tuple[int, int]) -> Tuple[int, int, int, int]:
     """Scale logo size/position from 1080x1350 base into target frame."""
     tw, th = target_size
-    sx = tw / POST_BASE_SIZE[0]
-    sy = th / POST_BASE_SIZE[1]
+    t_size_min = min(tw, th)
+    b_size_min = min(POST_BASE_SIZE[0], POST_BASE_SIZE[1])
 
-    lw = max(1, int(round(POST_BASE_LOGO_SIZE[0] * sx)))
-    lh = max(1, int(round(POST_BASE_LOGO_SIZE[1] * sy)))
-    lx = max(0, int(round(POST_BASE_LOGO_POS[0] * sx)))
-    ly = max(0, int(round(POST_BASE_LOGO_POS[1] * sy)))
+    # sx = tw / POST_BASE_SIZE[0]
+    # sy = th / POST_BASE_SIZE[1]
+    scaled = t_size_min / b_size_min
+
+    # lw = max(1, int(round(POST_BASE_LOGO_SIZE[0] * sx)))
+    # lh = max(1, int(round(POST_BASE_LOGO_SIZE[1] * sy)))
+    # lx = max(0, int(round(POST_BASE_LOGO_POS[0] * sx)))
+    # ly = max(0, int(round(POST_BASE_LOGO_POS[1] * sy)))
+    lw = max(1, int(round(POST_BASE_LOGO_SIZE[0] * scaled)))
+    lh = max(1, int(round(POST_BASE_LOGO_SIZE[1] * scaled)))
+    lx = max(0, int(round(POST_BASE_LOGO_POS[0] * scaled)))
+    ly = max(0, int(round(POST_BASE_LOGO_POS[1] * scaled)))
 
     lx = min(lx, max(0, tw - lw))
     ly = min(ly, max(0, th - lh))
