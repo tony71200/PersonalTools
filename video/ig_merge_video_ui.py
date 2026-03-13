@@ -1026,14 +1026,20 @@ def _run_add_logo_video_ffmpeg(input_path: str, output_path: str, logo_path: str
     lw, lh, lx, ly = scale_logo_rect_for_post((tw, th))
 
     cover_w, cover_h, _, _ = old_logo_cover_rect_bottom_right((tw, th))
-    x_expr = f"max(iw-{cover_w}\\,0)"
-    y_expr = f"max(ih-{cover_h}\\,0)"
-    w_expr = f"min(iw\\,{cover_w})"
-    h_expr = f"min(ih\\,{cover_h})"
+    src_w, src_h = size
+    patch_w = max(1, min(int(cover_w), int(src_w)))
+    patch_h = max(1, min(int(cover_h), int(src_h)))
+    patch_x = max(0, int(src_w) - patch_w)
+    patch_y = max(0, int(src_h) - patch_h)
+
+    x_expr = str(patch_x)
+    y_expr = str(patch_y)
+    w_expr = str(patch_w)
+    h_expr = str(patch_h)
     cover_filter = ""
     if remove_old_logo:
-        bx_expr = f"max(iw-{cover_w}-2\\,0)"
-        by_expr = f"max(ih-{cover_h}-2\\,0)"
+        bx_expr = str(max(0, patch_x - 2))
+        by_expr = str(max(0, patch_y - 2))
         cover_filter = (
             f"[0:v]split=2[srcbase][srcblur];"
             f"[srcblur]boxblur=15:3,crop=w={w_expr}:h={h_expr}:x={x_expr}:y={y_expr}[srcpatch];"
