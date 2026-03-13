@@ -40,7 +40,7 @@ import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Set, Tuple
 
 import cv2
 import numpy as np
@@ -78,6 +78,7 @@ DEFAULT_FPS: int = 30
 DEFAULT_VIDEO_BITRATE: str = "6000k"
 DEFAULT_AUDIO_BITRATE: str = "192k"
 DEFAULT_THREADS: int = 4
+OLD_LOGO_COVER_SIZE: Tuple[int, int] = (300, 210)
 
 CancelFn = Callable[[], bool]
 StatusFn = Callable[[str], None]
@@ -119,6 +120,9 @@ class MergeOptions:
     faststart: bool = True
 
     fallback_to_cpu_on_fail: bool = True
+    remove_old_logo: bool = False
+    remove_old_logo_paths: Tuple[str, ...] = ()
+    old_logo_cover_size: Tuple[int, int] = OLD_LOGO_COVER_SIZE
 
     backend: str = "fast_ffmpeg"  # "fast_ffmpeg" | "moviepy"
 
@@ -379,12 +383,36 @@ class FFmpegMerger:
     def __init__(self, opts: MergeOptions, encoder: EncoderChoice) -> None:
         self.opts = opts
         self.encoder = encoder
+        self._cover_path_set: Set[str] = {
+            os.path.normcase(os.path.normpath(p))
+            for p in (self.opts.remove_old_logo_paths or ())
+            if p
+        }
         if self.opts.random_seed is not None:
             random.seed(self.opts.random_seed)
+
+    def _should_cover_old_logo(self, path: str) -> bool:
+        if self.opts.remove_old_logo:
+            return True
+        if not self._cover_path_set:
+            return False
+        return os.path.normcase(os.path.normpath(path)) in self._cover_path_set
 
     def _expr_min(self, a: str, b: str) -> str:
         # min(a,b) contains comma => must escape: min(a\,b)
         return ff_escape_commas(f"min({a},{b})")
+
+    def _old_logo_cover_filter(self, label_in: str, label_out: str) -> str:
+        cw, ch = self.opts.old_logo_cover_size
+        x_expr = ff_escape_commas(f"max(iw-{int(cw)},0)")
+        y_expr = ff_escape_commas(f"max(ih-{int(ch)},0)")
+        w_expr = ff_escape_commas(f"min(iw,{int(cw)})")
+        h_expr = ff_escape_commas(f"min(ih,{int(ch)})")
+        return (
+            f"[{label_in}]"
+            f"drawbox=x={x_expr}:y={y_expr}:w={w_expr}:h={h_expr}:color=black@1:t=fill"
+            f"[{label_out}]"
+        )
 
     def _kenburns_filter(self, label_in: str, label_out: str, duration: float) -> str:
         tw, th = self.opts.target_size
@@ -462,6 +490,10 @@ class FFmpegMerger:
         for i, dur in enumerate(durations):
             vin = f"{i}:v"
             ain = f"{i}:a"
+            if self._should_cover_old_logo(input_paths[i]):
+                masked = f"masked{i}"
+                parts.append(self._old_logo_cover_filter(vin, masked))
+                vin = masked
 
             seg_base = f"seg{i}"
             parts.append(
@@ -786,9 +818,21 @@ class MoviePyMerger:
             raise RuntimeError("moviepy not installed but backend='moviepy'. Please install moviepy==1.0.3.")
         self.opts = opts
         self.encoder = encoder
+        self._cover_path_set: Set[str] = {
+            os.path.normcase(os.path.normpath(p))
+            for p in (self.opts.remove_old_logo_paths or ())
+            if p
+        }
         if self.opts.random_seed is not None:
             random.seed(self.opts.random_seed)
         self.frame_processor = FrameProcessor(self.opts.blur_downscale, self.opts.blur_ksize)
+
+    def _should_cover_old_logo(self, path: str) -> bool:
+        if self.opts.remove_old_logo:
+            return True
+        if not self._cover_path_set:
+            return False
+        return os.path.normcase(os.path.normpath(path)) in self._cover_path_set
 
     def fit_clip_with_blurred_bg(self, vclip: "VideoFileClip") -> Tuple["CompositeVideoClip", Tuple[int, int, int, int]]:
         tw, th = self.opts.target_size
@@ -840,6 +884,19 @@ class MoviePyMerger:
             clip = clip.set_position(lambda t: ("center", -max_pan * (1.0 - t / d)))
         return clip
 
+    def _cover_old_logo(self, clip: "VideoFileClip") -> "VideoFileClip":
+        cw, ch = self.opts.old_logo_cover_size
+
+        def _mask(frame_rgb: np.ndarray) -> np.ndarray:
+            out = frame_rgb.copy()
+            h, w = out.shape[:2]
+            ww = min(int(cw), w)
+            hh = min(int(ch), h)
+            out[max(0, h - hh):h, max(0, w - ww):w] = 0
+            return out
+
+        return clip.fl_image(_mask)
+
     def _build_transitioned_timeline(self, clips: List["CompositeVideoClip"], status: Optional[StatusFn]) -> "CompositeVideoClip":
         if len(clips) == 1:
             return clips[0]
@@ -882,6 +939,8 @@ class MoviePyMerger:
                     raise RuntimeError("CANCELLED")
                 safe_call_status(status, f"Đọc video {idx}/{len(input_paths)}: {os.path.basename(path)}")
                 vclip = VideoFileClip(path, audio=self.opts.keep_audio)
+                if self._should_cover_old_logo(path):
+                    vclip = self._cover_old_logo(vclip)
                 clips_to_close.append(vclip)
                 comp, _ = self.fit_clip_with_blurred_bg(vclip)
                 comp = self.apply_random_kenburns(comp)

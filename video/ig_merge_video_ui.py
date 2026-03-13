@@ -31,7 +31,7 @@ import os
 import sys
 import traceback
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 from abc import ABC, abstractmethod
 
 from dataclasses import dataclass
@@ -72,7 +72,7 @@ from PyQt5.QtWidgets import (
 )
 
 from ig_merge_video_core import MergeOptions, ImageVideoOptions, VideoMerger, natural_key, FFmpegProbe
-from ig_image_process_core import process_post_image_with_logo, target_post_size, scale_logo_rect_for_post
+from ig_image_process_core import process_post_image_with_logo, target_post_size, scale_logo_rect_for_post, old_logo_cover_rect_bottom_right
 
 
 def norm(p: str) -> str:
@@ -300,6 +300,100 @@ class SelectedThumbWidget(QFrame):
 
         self.setFixedSize(114, 142)
 
+
+def compact_filename(filename: str, prefix: int = 5, suffix: int = 4) -> str:
+    """Shorten long names for UI only, e.g. 00057....6799.png."""
+    if len(filename) <= 22:
+        return filename
+    stem, ext = os.path.splitext(filename)
+    if len(stem) <= (prefix + suffix + 4):
+        return filename
+    return f"{stem[:prefix]}....{stem[-suffix:]}{ext}"
+
+
+class CheckableThumbItemWidget(QFrame):
+    def __init__(self, icon: QIcon, filename: str, checked: bool, on_checked_changed: Callable[[bool], None],
+                 on_remove: Optional[Callable[[], None]] = None,
+                 checkbox_enabled: bool = True) -> None:
+        super().__init__()
+        self.setFrameShape(QFrame.NoFrame)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(2, 2, 2, 2)
+        lay.setSpacing(2)
+
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        self.chk = QCheckBox("Che logo cũ")
+        self.chk.setChecked(bool(checked))
+        self.chk.setEnabled(bool(checkbox_enabled))
+        self.chk.toggled.connect(on_checked_changed)
+        top.addWidget(self.chk)
+        top.addStretch(1)
+        if on_remove is not None:
+            btn = QToolButton()
+            btn.setText("×")
+            btn.setAutoRaise(True)
+            btn.setToolTip("Xoá item này")
+            btn.setFixedSize(22, 22)
+            btn.clicked.connect(on_remove)
+            top.addWidget(btn)
+
+        thumb = QLabel()
+        thumb.setFixedSize(110, 110)
+        thumb.setPixmap(icon.pixmap(110, 110))
+        thumb.setAlignment(Qt.AlignCenter)
+
+        txt = QLabel(compact_filename(filename))
+        txt.setAlignment(Qt.AlignHCenter)
+        txt.setFixedWidth(110)
+        txt.setToolTip(filename)
+
+        lay.addLayout(top)
+        lay.addWidget(thumb, 0, Qt.AlignCenter)
+        lay.addWidget(txt, 0, Qt.AlignCenter)
+        self.setFixedSize(132, 168)
+
+
+class CheckableThumbListWidget(QListWidget):
+    CHECK_ROLE = Qt.UserRole + 1
+
+    def checked_paths(self) -> List[str]:
+        out: List[str] = []
+        for i in range(self.count()):
+            item = self.item(i)
+            if bool(item.data(self.CHECK_ROLE)):
+                p = item.data(Qt.UserRole)
+                if p:
+                    out.append(p)
+        return out
+
+    def add_thumb_item(self, path: str, icon: QIcon, checked: bool = False,
+                      on_remove: Optional[Callable[[], None]] = None,
+                      on_checked_changed: Optional[Callable[[bool], None]] = None,
+                      checkbox_enabled: bool = True) -> QListWidgetItem:
+        base = os.path.basename(path)
+        item = QListWidgetItem()
+        item.setData(Qt.UserRole, path)
+        item.setData(self.CHECK_ROLE, bool(checked))
+        item.setSizeHint(QSize(136, 170))
+        self.addItem(item)
+
+        def _on_checked(v: bool) -> None:
+            item.setData(self.CHECK_ROLE, bool(v))
+            if on_checked_changed:
+                on_checked_changed(bool(v))
+
+        w = CheckableThumbItemWidget(
+            icon=icon,
+            filename=base,
+            checked=checked,
+            on_checked_changed=_on_checked,
+            on_remove=on_remove,
+            checkbox_enabled=checkbox_enabled,
+        )
+        self.setItemWidget(item, w)
+        return item
+
 class OutputRowWidget(QFrame):
     """
     Widget cho Output:
@@ -360,8 +454,10 @@ class Worker(QObject):
         raise NotImplementedError
 
 class VideoMergeWorker(Worker):
-    def __init__(self, input_paths, output_path, logo_path, keep_audio, backend, force_codec):
+    def __init__(self, input_paths, output_path, logo_path, keep_audio, backend, force_codec,
+                 remove_old_logo_paths: Optional[List[str]] = None):
         super().__init__(input_paths, output_path, logo_path, keep_audio, backend, force_codec)
+        self.remove_old_logo_paths = [norm(p) for p in (remove_old_logo_paths or []) if p]
 
     def run(self) -> None:
         video_paths = [p for p in self.input_paths if os.path.isfile(p) and p.lower().endswith(('.mp4', '.mov'))]
@@ -374,6 +470,7 @@ class VideoMergeWorker(Worker):
                 prefer_gpu=True,
                 force_codec=self.force_codec,
                 backend=self.backend,
+                remove_old_logo_paths=tuple(self.remove_old_logo_paths),
             )
             merger = VideoMerger(opts)
 
@@ -534,7 +631,7 @@ class MergeVideoTab(QWidget):
         gb_selected = QGroupBox("Selected area (thứ tự merge)")
         sel_lay = QVBoxLayout(gb_selected)
 
-        self.merge_list = QListWidget()
+        self.merge_list = CheckableThumbListWidget()
         self.merge_list.setViewMode(QListWidget.IconMode)
         self.merge_list.setIconSize(QSize(110, 110))
         self.merge_list.setResizeMode(QListWidget.Adjust)
@@ -653,23 +750,17 @@ class MergeVideoTab(QWidget):
     # ---------------- Selected area (with overlay X) ----------------
 
     def _add_to_merge(self, path: str) -> None:
-        base = os.path.basename(path)
         icon = self.thumb_cache.get(path)
-
-        item = QListWidgetItem()
-        item.setData(Qt.UserRole, path)
-        item.setSizeHint(QSize(114, 142))
-        self.merge_list.addItem(item)
+        item: Optional[QListWidgetItem] = None
 
         def on_remove() -> None:
+            if item is None:
+                return
             row = self.merge_list.row(item)
             if row >= 0:
                 self.merge_list.takeItem(row)
 
-        # text should fit within thumbnail width
-        w = int(self.merge_list.iconSize().width())
-        widget = SelectedThumbWidget(icon=icon, filename=base, max_text_px=w, on_remove=on_remove)
-        self.merge_list.setItemWidget(item, widget)
+        item = self.merge_list.add_thumb_item(path=path, icon=icon, checked=False, on_remove=on_remove)
 
     def _clear_merge(self) -> None:
         self.merge_list.clear()
@@ -741,6 +832,7 @@ class MergeVideoTab(QWidget):
         keep_audio = self.chk_keep_audio.isChecked()
         force_codec = self.encoder_combo.currentData()
         backend = self.backend_combo.currentData()
+        remove_old_logo_paths = self.merge_list.checked_paths()
 
         tmp = VideoMerger(MergeOptions(keep_audio=keep_audio, prefer_gpu=True, force_codec=force_codec, backend=backend))
         self.lbl_chip.setText(f"Chip: {tmp.processing_backend_label()} | Backend: {backend}")
@@ -754,7 +846,8 @@ class MergeVideoTab(QWidget):
 
         self._worker_thread = QThread()
         self._worker = VideoMergeWorker(ordered, out_path, self.logo_path, 
-                                        keep_audio=keep_audio, force_codec=force_codec, backend=backend)
+                                        keep_audio=keep_audio, force_codec=force_codec, backend=backend,
+                                        remove_old_logo_paths=remove_old_logo_paths)
         self._worker.moveToThread(self._worker_thread)
 
         self._worker_thread.started.connect(self._worker.run)
@@ -923,8 +1016,8 @@ def _probe_video_size(path: str) -> Optional[Tuple[int, int]]:
     return None
 
 
-def _run_add_logo_video_ffmpeg(input_path: str, output_path: str, logo_path: str, fps: int = 30) -> None:
-    # Updated 2026-02-28: xử lý blur theo đúng mong muốn (chỉ tạo blur nền khi lệch tỉ lệ target).
+def _run_add_logo_video_ffmpeg(input_path: str, output_path: str, logo_path: str, fps: int = 30, remove_old_logo: bool = False) -> None:
+    # Updated 2026-03-13: với video, thứ tự xử lý là che logo cũ (tuỳ chọn) -> blur background -> chèn logo mới.
     size = _probe_video_size(input_path)
     if not size:
         raise RuntimeError(f"Không đọc được metadata video: {input_path}")
@@ -932,27 +1025,28 @@ def _run_add_logo_video_ffmpeg(input_path: str, output_path: str, logo_path: str
     tw, th = target_post_size(size[0], size[1])
     lw, lh, lx, ly = scale_logo_rect_for_post((tw, th))
 
-    src_ratio = (size[0] / size[1]) if size[1] else 0.0
-    dst_ratio = (tw / th) if th else 0.0
-    same_ratio = abs(src_ratio - dst_ratio) <= 0.01
-
-    if same_ratio:
-        vf = (
-            # Same behavior as image pipeline: khi tỉ lệ gần trùng target thì scale full khung,
-            # tránh tạo kích thước lẻ (vd 1069x1350) khiến libx264 báo "width not divisible by 2".
-            f"[0:v]scale={tw}:{th}[mid];"
-            f"[1:v]scale={lw}:{lh}[logo];"
-            f"[mid][logo]overlay={lx}:{ly},format=yuv420p[v]"
+    cover_w, cover_h, _, _ = old_logo_cover_rect_bottom_right((tw, th))
+    x_expr = f"max(iw-{cover_w}\\,0)"
+    y_expr = f"max(ih-{cover_h}\\,0)"
+    w_expr = f"min(iw\\,{cover_w})"
+    h_expr = f"min(ih\\,{cover_h})"
+    cover_filter = ""
+    if remove_old_logo:
+        cover_filter = (
+            f"[0:v]drawbox=x={x_expr}:y={y_expr}:w={w_expr}:h={h_expr}:color=black@1:t=fill[src];"
         )
     else:
-        vf = (
-            f"[0:v]split=2[bgsrc][fgsrc];"
-            f"[bgsrc]scale={tw}:{th},gblur=sigma=30[bg];"
-            f"[fgsrc]scale={tw}:{th}:force_original_aspect_ratio=decrease[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)/2[mid];"
-            f"[1:v]scale={lw}:{lh}[logo];"
-            f"[mid][logo]overlay={lx}:{ly},format=yuv420p[v]"
-        )
+        cover_filter = "[0:v]null[src];"
+
+    vf = (
+        f"{cover_filter}"
+        f"[src]split=2[bgsrc][fgsrc];"
+        f"[bgsrc]scale={tw}:{th},gblur=sigma=30[bg];"
+        f"[fgsrc]scale={tw}:{th}:force_original_aspect_ratio=decrease[fg];"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2[mid];"
+        f"[1:v]scale={lw}:{lh}[logo];"
+        f"[mid][logo]overlay={lx}:{ly},format=yuv420p[v]"
+    )
 
     cmd = [
         "ffmpeg", "-y",
@@ -1460,7 +1554,8 @@ class AddLogoWorker(Worker):
     outfilename = pyqtSignal(str)
     processpercent = pyqtSignal(float)
 
-    def __init__(self, input_paths: List[str], output_path: str, logo_path: str, fps: int = 30, overwrite_in_place: bool = False) -> None:
+    def __init__(self, input_paths: List[str], output_path: str, logo_path: str, fps: int = 30,
+                 overwrite_in_place: bool = False, remove_old_logo_paths: Optional[List[str]] = None) -> None:
         super().__init__(
             input_paths=input_paths,
             output_path=output_path,
@@ -1471,6 +1566,9 @@ class AddLogoWorker(Worker):
         )
         self.fps = int(max(1, fps))
         self.overwrite_in_place = bool(overwrite_in_place)
+        self.remove_old_logo_paths: Set[str] = {
+            os.path.normcase(norm(p)) for p in (remove_old_logo_paths or []) if p
+        }
 
     def _make_output_file(self, src: str, out_folder: Optional[str]) -> str:
         # Updated 2026-02-28: giữ nguyên tên file output, không thêm hậu tố _logo.
@@ -1528,7 +1626,14 @@ class AddLogoWorker(Worker):
                         work_out = self._make_tmp_file_for_overwrite(src, is_video=is_video)
 
                     if is_video:
-                        _run_add_logo_video_ffmpeg(src, work_out, self.logo_path, fps=self.fps)
+                        src_key = os.path.normcase(norm(src))
+                        _run_add_logo_video_ffmpeg(
+                            src,
+                            work_out,
+                            self.logo_path,
+                            fps=self.fps,
+                            remove_old_logo=(src_key in self.remove_old_logo_paths),
+                        )
                     else:
                         process_post_image_with_logo(src, self.logo_path, work_out)
 
@@ -1561,6 +1666,7 @@ class AddLogoTab(QWidget):
         self._worker: Optional[AddLogoWorker] = None
         self._current_single_folder: Optional[str] = None
         self._last_parent_folder: Optional[str] = None
+        self._cover_old_logo_by_path: Dict[str, bool] = {}
 
         self._setup_ui()
         self._sync_left_mode()
@@ -1618,7 +1724,7 @@ class AddLogoTab(QWidget):
         top = QGroupBox("Preview Media")
         top_lay = QHBoxLayout(top)
 
-        self.thumb_list = QListWidget()
+        self.thumb_list = CheckableThumbListWidget()
         self.thumb_list.setViewMode(QListWidget.IconMode)
         self.thumb_list.setResizeMode(QListWidget.Adjust)
         self.thumb_list.setMovement(QListWidget.Static)
@@ -1650,7 +1756,6 @@ class AddLogoTab(QWidget):
         self.logo_line.setPlaceholderText("Logo (bắt buộc)")
         self.btn_pick_logo = QPushButton("Browse")
         self.btn_pick_logo.clicked.connect(self._pick_logo)
-
         self.btn_run = QPushButton("Run")
         self.btn_run.clicked.connect(self._start_add_logo)
         self.btn_cancel = QPushButton("Cancel")
@@ -1704,6 +1809,7 @@ class AddLogoTab(QWidget):
         self.thumb_list.clear()
         self._current_single_folder = None
         self._last_parent_folder = None
+        self._cover_old_logo_by_path.clear()
 
     def _handle_plus(self) -> None:
         if self.chk_batch_from_parent.isChecked():
@@ -1798,13 +1904,24 @@ class AddLogoTab(QWidget):
             self.thumb_list.addItem(QListWidgetItem("No media"))
             return
         for p in media[:300]:
-            if p.lower().endswith(VIDEO_EXTS):
+            is_video = p.lower().endswith(VIDEO_EXTS)
+            if is_video:
                 icon = self.vid_thumb_cache.get(p)
             else:
                 icon = self.img_thumb_cache.get(p)
-            it = QListWidgetItem(icon, "")
-            it.setToolTip(p)
-            self.thumb_list.addItem(it)
+
+            checked = bool(self._cover_old_logo_by_path.get(norm(p), False))
+
+            def on_checked(v: bool, path: str = norm(p)) -> None:
+                self._cover_old_logo_by_path[path] = bool(v)
+
+            self.thumb_list.add_thumb_item(
+                path=p,
+                icon=icon,
+                checked=checked,
+                on_checked_changed=on_checked,
+                checkbox_enabled=is_video,
+            )
 
     def _start_add_logo(self) -> None:
         folders = self._folders_to_process()
@@ -1852,6 +1969,7 @@ class AddLogoTab(QWidget):
             logo_path=logo_path,
             fps=fps,
             overwrite_in_place=overwrite_in_place,
+            remove_old_logo_paths=[p for p, v in self._cover_old_logo_by_path.items() if v],
         )
         self._worker.moveToThread(self._worker_thread)
 
