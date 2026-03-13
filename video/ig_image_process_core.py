@@ -5,6 +5,8 @@ from typing import Tuple
 POST_BASE_SIZE: Tuple[int, int] = (1080, 1350)
 POST_BASE_LOGO_SIZE: Tuple[int, int] = (90, 129)
 POST_BASE_LOGO_POS: Tuple[int, int] = (60,  POST_BASE_SIZE[1] - 60 -POST_BASE_LOGO_SIZE[0])
+OLD_LOGO_COVER_REF_FRAME: Tuple[int, int] = (381, 527)
+OLD_LOGO_COVER_REF_SIZE: Tuple[int, int] = (90, 30)
 
 class LogoPosition(Enum):
     TOP_LEFT = 1
@@ -115,6 +117,19 @@ def scale_logo_rect_for_post(target_size: Tuple[int, int]) -> Tuple[int, int, in
     lx = min(lx, max(0, tw - lw))
     ly = min(ly, max(0, th - lh))
     return lw, lh, lx, ly
+
+
+def old_logo_cover_rect_bottom_right(target_size: Tuple[int, int]) -> Tuple[int, int, int, int]:
+    """Bottom-right rect to hide old logo for video flow (scaled from 381x527 -> 90x26)."""
+    tw, th = target_size
+    rw, rh = OLD_LOGO_COVER_REF_FRAME
+    cw = max(1, int(round(OLD_LOGO_COVER_REF_SIZE[0] * tw / rw)))
+    ch = max(1, int(round(OLD_LOGO_COVER_REF_SIZE[1] * th / rh)))
+    cw = min(cw, tw)
+    ch = min(ch, th)
+    cx = max(0, tw - cw)
+    cy = max(0, th - ch)
+    return cw, ch, cx, cy
 
 
 def process_post_image_with_logo(image_path: str, logo_path: str, output_path: str) -> None:
