@@ -6,7 +6,7 @@ POST_BASE_SIZE: Tuple[int, int] = (1080, 1350)
 POST_BASE_LOGO_SIZE: Tuple[int, int] = (90, 129)
 POST_BASE_LOGO_POS: Tuple[int, int] = (60,  POST_BASE_SIZE[1] - 60 -POST_BASE_LOGO_SIZE[0])
 OLD_LOGO_COVER_REF_FRAME: Tuple[int, int] = (381, 527)
-OLD_LOGO_COVER_REF_SIZE: Tuple[int, int] = (90, 26)
+OLD_LOGO_COVER_REF_SIZE: Tuple[int, int] = (90, 30)
 
 class LogoPosition(Enum):
     TOP_LEFT = 1

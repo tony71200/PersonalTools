@@ -2054,9 +2054,10 @@ class MainWindow(QMainWindow):
 
 
 def main() -> None:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
     app = QApplication(sys.argv)
     try:
-        with open("MacOS.qss"), "r" as f:
+        with open(os.path.join(base_dir,"MacOS.qss"), "r") as f:
             app.setStyleSheet(f.read())
     except Exception:
         pass
