@@ -1032,8 +1032,13 @@ def _run_add_logo_video_ffmpeg(input_path: str, output_path: str, logo_path: str
     h_expr = f"min(ih\\,{cover_h})"
     cover_filter = ""
     if remove_old_logo:
+        bx_expr = f"max(iw-{cover_w}-2\\,0)"
+        by_expr = f"max(ih-{cover_h}-2\\,0)"
         cover_filter = (
-            f"[0:v]drawbox=x={x_expr}:y={y_expr}:w={w_expr}:h={h_expr}:color=black@1:t=fill[src];"
+            f"[0:v]split=2[srcbase][srcblur];"
+            f"[srcblur]boxblur=15:3,crop=w={w_expr}:h={h_expr}:x={x_expr}:y={y_expr}[srcpatch];"
+            f"[srcbase][srcpatch]overlay=x={x_expr}:y={y_expr},"
+            f"drawbox=x={bx_expr}:y={by_expr}:w={w_expr}:h={h_expr}:color=black@0.12:t=2[src];"
         )
     else:
         cover_filter = "[0:v]null[src];"

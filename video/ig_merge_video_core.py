@@ -25,7 +25,7 @@ GPU encode:
 
 Lưu ý quan trọng (FIX lỗi bạn gặp):
 - Trong ffmpeg filtergraph, dấu phẩy "," là separator filter.
-  => Mọi dấu phẩy trong expression (min(), if(), lt(), max(), ...) phải escape: "\,"
+  => Mọi dấu phẩy trong expression (min(), if(), lt(), max(), ...) phải escape: "\\,"
   => Không escape sẽ gây: "No option name near '0'" / "Error parsing filterchain".
 """
 
@@ -78,7 +78,8 @@ DEFAULT_FPS: int = 30
 DEFAULT_VIDEO_BITRATE: str = "6000k"
 DEFAULT_AUDIO_BITRATE: str = "192k"
 DEFAULT_THREADS: int = 4
-OLD_LOGO_COVER_SIZE: Tuple[int, int] = (300, 210)
+OLD_LOGO_COVER_REF_FRAME: Tuple[int, int] = (381, 527)
+OLD_LOGO_COVER_REF_SIZE: Tuple[int, int] = (90, 26)
 
 CancelFn = Callable[[], bool]
 StatusFn = Callable[[str], None]
@@ -122,7 +123,7 @@ class MergeOptions:
     fallback_to_cpu_on_fail: bool = True
     remove_old_logo: bool = False
     remove_old_logo_paths: Tuple[str, ...] = ()
-    old_logo_cover_size: Tuple[int, int] = OLD_LOGO_COVER_SIZE
+    old_logo_cover_size: Optional[Tuple[int, int]] = None
 
     backend: str = "fast_ffmpeg"  # "fast_ffmpeg" | "moviepy"
 
@@ -197,9 +198,17 @@ def shell_join(cmd: Sequence[str]) -> str:
 def ff_escape_commas(expr: str) -> str:
     """
     Escape commas inside ffmpeg expressions.
-    Why: ffmpeg uses ',' to separate filters; commas in expressions must be escaped '\,'.
+    Why: ffmpeg uses ',' to separate filters; commas in expressions must be escaped '\\,'.
     """
     return expr.replace(",", r"\,")
+
+
+def scale_old_logo_cover_size_for_video(target_size: Tuple[int, int]) -> Tuple[int, int]:
+    tw, th = target_size
+    rw, rh = OLD_LOGO_COVER_REF_FRAME
+    cw = max(1, int(round(OLD_LOGO_COVER_REF_SIZE[0] * tw / rw)))
+    ch = max(1, int(round(OLD_LOGO_COVER_REF_SIZE[1] * th / rh)))
+    return min(cw, tw), min(ch, th)
 
 
 def scale_logo_rect_from_base(
@@ -403,14 +412,25 @@ class FFmpegMerger:
         return ff_escape_commas(f"min({a},{b})")
 
     def _old_logo_cover_filter(self, label_in: str, label_out: str) -> str:
-        cw, ch = self.opts.old_logo_cover_size
+        tw, th = self.opts.target_size
+        if self.opts.old_logo_cover_size:
+            cw, ch = self.opts.old_logo_cover_size
+            cw = min(int(cw), tw)
+            ch = min(int(ch), th)
+        else:
+            cw, ch = scale_old_logo_cover_size_for_video((tw, th))
         x_expr = ff_escape_commas(f"max(iw-{int(cw)},0)")
         y_expr = ff_escape_commas(f"max(ih-{int(ch)},0)")
         w_expr = ff_escape_commas(f"min(iw,{int(cw)})")
         h_expr = ff_escape_commas(f"min(ih,{int(ch)})")
+        bx_expr = ff_escape_commas(f"max(iw-{int(cw)}-2,0)")
+        by_expr = ff_escape_commas(f"max(ih-{int(ch)}-2,0)")
         return (
-            f"[{label_in}]"
-            f"drawbox=x={x_expr}:y={y_expr}:w={w_expr}:h={h_expr}:color=black@1:t=fill"
+            f"[{label_in}]split=2[{label_out}src][{label_out}blur];"
+            f"[{label_out}blur]boxblur=15:3,"
+            f"crop=w={w_expr}:h={h_expr}:x={x_expr}:y={y_expr}[{label_out}patch];"
+            f"[{label_out}src][{label_out}patch]overlay=x={x_expr}:y={y_expr},"
+            f"drawbox=x={bx_expr}:y={by_expr}:w={w_expr}:h={h_expr}:color=black@0.12:t=2"
             f"[{label_out}]"
         )
 
@@ -885,14 +905,23 @@ class MoviePyMerger:
         return clip
 
     def _cover_old_logo(self, clip: "VideoFileClip") -> "VideoFileClip":
-        cw, ch = self.opts.old_logo_cover_size
+        if self.opts.old_logo_cover_size:
+            cw, ch = self.opts.old_logo_cover_size
+        else:
+            cw, ch = scale_old_logo_cover_size_for_video(self.opts.target_size)
 
         def _mask(frame_rgb: np.ndarray) -> np.ndarray:
             out = frame_rgb.copy()
             h, w = out.shape[:2]
             ww = min(int(cw), w)
             hh = min(int(ch), h)
-            out[max(0, h - hh):h, max(0, w - ww):w] = 0
+            y0 = max(0, h - hh)
+            x0 = max(0, w - ww)
+            region = out[y0:h, x0:w]
+            if region.size > 0:
+                kx = ensure_odd(max(3, int(ww // 6) * 2 + 1))
+                ky = ensure_odd(max(3, int(hh // 4) * 2 + 1))
+                out[y0:h, x0:w] = cv2.GaussianBlur(region, (kx, ky), 0)
             return out
 
         return clip.fl_image(_mask)
