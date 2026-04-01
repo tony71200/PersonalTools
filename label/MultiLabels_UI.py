@@ -197,34 +197,44 @@ def ensure_default_labels_file() -> Dict[str, List[str]]:
     {
         "groups": {
             "style": [
-            "realistic",
-            "semi-realistic",
-            "anime"
+                "realistic",
+                "semi-realistic",
+                "anime"
             ],
+
             "nsfw_level": [
-                "sfw",              // an toàn, không nhạy cảm
-                "suggestive",       // gợi cảm (pose, quần áo ôm, khoe body nhẹ)
-                "mild_nudity",      // hở ngực/mông nhẹ, đồ lót, đồ bơi, che tay/tóc
-                "explicit_nudity"   // thấy rõ ngực trần, mông rõ, bộ phận sinh dục, sex
+                "sfw",
+                "suggestive",
+                "mild_nudity",
+                "explicit_nudity"
             ],
-            "exposure_region": [
-                "swimwear_or_underwear",       // đồ bơi hoặc đồ lót
-                "partially_exposed_buttocks",  // hở một phần mông
-                "exposed_buttocks_or_anus",    // hở rõ mông / khe / hậu môn
-                "upper_body_exposed",          // hở phần thân trên (ngực, vai, bụng)
-                "bare_chest",                  // ngực trần (thường cho nam)
-                "exposed_male_nipple",         // thấy rõ núm vú nam
-                "obstructed_intimate_parts",   // chỗ nhạy cảm bị che tay/tóc/đồ vật
-                "partially_exposed_genitalia", // lộ một phần bộ phận sinh dục
-                "exposed_male_genitalia"       // lộ rõ bộ phận sinh dục nam
+
+            "clothing": [
+                "fully_clothed",
+                "casual_wear",
+                "swimwear",
+                "underwear",
+                "shirtless",
+                "bottomless"
             ],
+
+            "exposure": [
+                "no_exposure",
+                "upper_body_exposed",
+                "nipple_visible",
+                "butt_exposed",
+                "partial_genital",
+                "genital_exposed",
+                "obstructed_intimate_parts"
+            ],
+
             "activity": [
-                "no_sexual_activity",     // không có hành vi mang tính sexual (có thể bỏ nếu không cần negative)
-                "kissing",                // hôn
-                "intimate_touching",      // chạm vùng nhạy cảm (tự chạm hoặc người khác)
-                "suggestive_pose",        // pose gợi cảm, body language sexy
-                "implied_sexual_activity",// ám chỉ sex (trên giường, mặt đỏ, tư thế rõ ràng…)
-                "explicit_sexual_activity"// đang có hành vi sex rõ ràng
+                "no_sexual_activity",
+                "kissing",
+                "intimate_touching",
+                "suggestive_pose",
+                "implied_sexual_activity",
+                "explicit_sexual_activity"
             ]
         }
     }
@@ -321,6 +331,40 @@ def flatten_default_labels(groups: Dict[str, List[str]]) -> List[str]:
     return out
 
 
+def merge_labels_with_defaults(existing_labels: Dict[int, str], 
+                               default_labels_list: List[str]) -> Dict[int, str]:
+    """
+    Merge existing labels với default labels.
+    - Rebuild labels theo thứ tự của default_labels_list (để đảm bảo ID consistency)
+    - Giữ lại các tags custom từ existing_labels không có trong default
+    
+    Args:
+        existing_labels: {id: tag_name} từ labels.json cũ
+        default_labels_list: [tag_name, ...] từ default_labels.json
+    
+    Returns:
+        Dict[int, str] với labels đã merge (theo thứ tự default)
+    """
+    merged = {}
+    existing_tag_names = set(existing_labels.values())
+    
+    # Rebuild theo thứ tự của default_labels_list
+    for idx, tag in enumerate(default_labels_list):
+        if idx < MAX_LABELS:
+            merged[idx] = tag
+    
+    # Thêm các tags custom (không có trong default) từ existing
+    max_idx = len(default_labels_list)
+    for old_id, tag in existing_labels.items():
+        if tag not in default_labels_list:
+            # Tag này là custom, thêm vào cuối
+            if max_idx < MAX_LABELS:
+                merged[max_idx] = tag
+                max_idx += 1
+    
+    return merged
+
+
 # ======================= Data manager =======================
 
 class LabelDataManager:
@@ -361,6 +405,11 @@ class LabelDataManager:
         self.label_names = {
             int(k): v for k, v in data.get("label_names", {}).items()
         }
+        
+        # Merge với default_labels nếu có tag mới từ default_labels.json
+        if self.default_labels:
+            self.label_names = merge_labels_with_defaults(self.label_names, self.default_labels)
+        
         self.label_to_id = {v: k for k, v in self.label_names.items()}
 
         self.image_entries.clear()
@@ -671,12 +720,22 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
 
         layout.addWidget(QtWidgets.QLabel("Tất cả tag đã tạo (nhóm):"))
 
-        # nút same
+        # nút same + remove non-default
+        btn_layout = QtWidgets.QHBoxLayout()
+        
         self.btn_same_prev = QtWidgets.QPushButton("same")
         self.btn_same_prev.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_BrowserReload))
         self.btn_same_prev.setToolTip("Copy toàn bộ tag từ ảnh trước đó")
         self.btn_same_prev.clicked.connect(self._on_copy_prev_labels)
-        layout.addWidget(self.btn_same_prev)
+        
+        self.btn_remove_non_default = QtWidgets.QPushButton("Remove non-default")
+        self.btn_remove_non_default.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DialogCancelButton))
+        self.btn_remove_non_default.setToolTip("Loại bỏ tất cả label không có trong default_labels.json")
+        self.btn_remove_non_default.clicked.connect(self._on_remove_non_default_labels)
+        
+        btn_layout.addWidget(self.btn_same_prev)
+        btn_layout.addWidget(self.btn_remove_non_default)
+        layout.addLayout(btn_layout)
 
         # Tree: group -> tag (ID, name)
         self.global_tag_tree = QtWidgets.QTreeWidget()
@@ -725,10 +784,46 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
             json_path=json_path,
             default_labels=self.default_label_names
         )
+        
+        # Nếu labels.json tồn tại, cần renormalize paths để match với folder hiện tại
+        # vì labels.json có thể lưu paths từ folder khác
+        if os.path.exists(json_path):
+            self._renormalize_image_paths(folder)
+        
+        # Nếu labels.json không tồn tại, lưu ngay để có default_labels
+        if not os.path.exists(json_path):
+            self.data_manager.save()
+        else:
+            # Nếu có thay đổi từ default_labels, lưu lại để cập nhật
+            self.data_manager.save()
+        
         self._sync_groups_from_manager()
         self._refresh_global_label_list()
         self.current_root_folder = folder
         self._build_tree_from_folder(folder)
+    
+    def _renormalize_image_paths(self, current_folder: str):
+        """
+        Cấp nhật đường dẫn ảnh trong data_manager để match với current_folder
+        (vì labels.json có thể được tạo từ folder khác)
+        """
+        new_entries = {}
+        for old_full_path, entry in self.data_manager.image_entries.items():
+            image_name = entry.get("image_name", "")
+            if image_name:
+                # Tạo full_path mới từ current_folder
+                new_full_path = os.path.join(current_folder, image_name)
+                # Update directory
+                new_entries[new_full_path] = {
+                    "directory": current_folder,
+                    "image_name": image_name,
+                    "labels_str": entry.get("labels_str", ""),
+                }
+            else:
+                # Nếu không có image_name, giữ lại cũ
+                new_entries[old_full_path] = entry
+        
+        self.data_manager.image_entries = new_entries
 
     def _build_tree_from_folder(self, root_folder: str):
         self.tree.clear()
@@ -1206,6 +1301,83 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
         
         # (Optional) Thông báo nhỏ dưới status bar nếu muốn
         self.statusBar().showMessage(f"Đã copy {len(new_tags)} tags từ ảnh trước.", 2000)
+
+    def _on_remove_non_default_labels(self):
+        """
+        Loại bỏ tất cả label không có trong default_labels.json
+        từ tất cả ảnh
+        """
+        if not self.current_root_folder:
+            QtWidgets.QMessageBox.warning(
+                self, "Cảnh báo", "Vui lòng load folder trước tiên."
+            )
+            return
+        
+        # Tạo set các default labels
+        default_tags_set = set(self.default_label_names)
+        
+        # Tìm các tags non-default
+        non_default_tags = set()
+        for full_path, entry in self.data_manager.image_entries.items():
+            labels_str = entry.get("labels_str", "").strip()
+            if labels_str:
+                tags = [t.strip() for t in labels_str.split(",") if t.strip()]
+                for tag in tags:
+                    if tag not in default_tags_set:
+                        non_default_tags.add(tag)
+        
+        if not non_default_tags:
+            QtWidgets.QMessageBox.information(
+                self, "Thông báo",
+                "Không có label nào không có trong default_labels.json"
+            )
+            return
+        
+        # Xác nhận
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Xác nhận xóa",
+            f"Loại bỏ {len(non_default_tags)} label không có trong default:\n\n" +
+            "\n".join(sorted(list(non_default_tags))[:10]) +
+            ("\n..." if len(non_default_tags) > 10 else ""),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+        
+        # Loại bỏ non-default labels khỏi tất cả ảnh
+        for full_path, entry in self.data_manager.image_entries.items():
+            labels_str = entry.get("labels_str", "").strip()
+            if not labels_str:
+                continue
+            tags = [t.strip() for t in labels_str.split(",") if t.strip()]
+            # Giữ lại chỉ tags có trong default
+            tags = [t for t in tags if t in default_tags_set]
+            entry["labels_str"] = ",".join(sorted(set(tags)))
+        
+        # Xóa non-default tags khỏi label_names
+        for tag in non_default_tags:
+            self.data_manager.delete_label(tag)
+        
+        # Refresh UI
+        if 0 <= self.current_index < len(self.image_paths):
+            full = self.image_paths[self.current_index]
+            tags = self.data_manager.get_image_labels(full)
+            self._set_tag_widgets(tags)
+        
+        for full, item in self.item_by_path.items():
+            self._update_image_item_state(item, full)
+        self._update_all_folder_check_state()
+        
+        self._refresh_global_label_list()
+        self._update_label_counter()
+        self._maybe_save()
+        
+        QtWidgets.QMessageBox.information(
+            self, "Thành công",
+            f"Đã loại bỏ {len(non_default_tags)} label không có trong default"
+        )
 
     # ----update label count -----
     def _update_label_counter(self):
