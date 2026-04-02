@@ -35,20 +35,30 @@ class FlowLayout(QtWidgets.QLayout):
             self.setContentsMargins(margin, margin, margin, margin)
 
     def __del__(self):
-        item = self.takeAt(0)
-        while item:
-            item = self.takeAt(0)
+        # Không gọi takeAt()/activate() trong destructor vì đối tượng C++
+        # có thể đã bị Qt hủy trước Python GC.
+        try:
+            self.item_list.clear()
+        except RuntimeError:
+            pass
+
+    def _request_relayout(self):
+        try:
+            self.invalidate()
+            self.activate()
+        except (AttributeError, RuntimeError):
+            try:
+                w = self.parentWidget()
+                if w is not None:
+                    w.updateGeometry()
+                    w.update()
+            except RuntimeError:
+                # parent/layout đã bị hủy, bỏ qua an toàn
+                pass
 
     def addItem(self, item):
         self.item_list.append(item)
-        self.invalidate()
-        try:
-            self.activate()
-        except AttributeError:
-            w = self.parentWidget()
-            if w is not None:
-                w.updateGeometry()
-                w.update()
+        self._request_relayout()
 
     def count(self):
         return len(self.item_list)
@@ -61,14 +71,7 @@ class FlowLayout(QtWidgets.QLayout):
     def takeAt(self, index):
         if 0 <= index < len(self.item_list):
             item = self.item_list.pop(index)
-            #self.invalidate()
-            try:
-                self.activate()
-            except AttributeError:
-                w = self.parentWidget()
-                if w is not None:
-                    w.updateGeometry()
-                    w.update()
+            self._request_relayout()
             return item       
         return None
 
@@ -433,10 +436,14 @@ class LabelDataManager:
             image_name = item.get("image_name", "")
             labels_str = item.get("labels", "").strip()
             full_path = os.path.join(directory, image_name)
+            labels_list = [t.strip() for t in labels_str.split(",") if t.strip()]
+            labels_list.sort(key= lambda t: self.label_to_id.get(t, float('inf')))
+            labels_str = ",".join(labels_list)
             self.image_entries[full_path] = {
                 "directory": directory,
                 "image_name": image_name,
                 "labels_str": labels_str,
+                "labels_list": labels_list,
             }
 
     def _init_empty(self):
@@ -465,7 +472,7 @@ class LabelDataManager:
 
         os.makedirs(os.path.dirname(self.json_path) or ".", exist_ok=True)
         with open(self.json_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, separators=(",", ":"), indent=2)
 
     # ---------- Labels ----------
 
@@ -511,26 +518,28 @@ class LabelDataManager:
     # ---------- Per-image labels ----------
 
     def get_image_labels(self, full_path: str) -> List[str]:
-        if full_path not in self.image_entries:
+        entry = self.image_entries.get(full_path)
+        if not entry:
             return []
-        labels_str = self.image_entries[full_path].get("labels_str", "").strip()
-        if not labels_str:
-            return []
-        return [t for t in labels_str.split(",") if t.strip()]
+        labels_list = entry.get("labels_list", [])
+        return list(labels_list)
 
     def set_image_labels(self, full_path: str, tags: List[str]):
         tags = [t.strip() for t in tags if t.strip()]
         dir_path, fname = os.path.split(full_path)
-        labels_str = ",".join(sorted(set(tags), key=lambda t: self.label_to_id.get(t, 99999)))
+        labels_list = sorted(set(tags), key=lambda t: self.label_to_id.get(t, 99999))
+        labels_str = ",".join(labels_list)
 
         if full_path not in self.image_entries:
             self.image_entries[full_path] = {
                 "directory": dir_path,
                 "image_name": fname,
                 "labels_str": labels_str,
+                "labels_list": labels_list,
             }
         else:
             self.image_entries[full_path]["labels_str"] = labels_str
+            self.image_entries[full_path]["labels_list"] = labels_list
 
 
 # ======================= Main window =======================
@@ -568,6 +577,11 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
 
         self.auto_save = True
         self._suppress_global_tag_item_changed = False
+        self._global_tree_tag_items: Dict[str, QtWidgets.QTreeWidgetItem] = {}
+        self._global_tree_group_items: Dict[str, QtWidgets.QTreeWidgetItem] = {}
+        self._global_tag_filter_timer = QtCore.QTimer(self)
+        self._global_tag_filter_timer.setSingleShot(True)
+        self._global_tag_filter_timer.timeout.connect(self._apply_global_tag_filter)
 
         self.image_paths: List[str] = []
         self.current_index: int = -1
@@ -739,6 +753,10 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(group)
 
         layout.addWidget(QtWidgets.QLabel("Tất cả tag đã tạo (nhóm):"))
+        self.global_tag_search = QtWidgets.QLineEdit()
+        self.global_tag_search.setPlaceholderText("Tìm tag trong danh sách...")
+        self.global_tag_search.textChanged.connect(self._on_global_tag_search_changed)
+        layout.addWidget(self.global_tag_search)
 
         # nút same + remove non-default
         btn_layout = QtWidgets.QHBoxLayout()
@@ -839,6 +857,7 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
                     "directory": current_folder,
                     "image_name": image_name,
                     "labels_str": entry.get("labels_str", ""),
+                    "labels_list": entry.get("labels_list", []),
                 }
             else:
                 # Nếu không có image_name, giữ lại cũ
@@ -1075,6 +1094,7 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
                 self._update_single_folder_check_state(parent)
                 parent = parent.parent()
         self._update_label_counter()
+        self._update_global_tag_check_states()
         self._maybe_save()
 
     def resizeEvent(self, event: QtGui.QResizeEvent):
@@ -1129,6 +1149,7 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
             return
 
         # ensure label tồn tại trong vocab
+        tag_existed = tag in self.data_manager.label_to_id
         new_id = self.data_manager.ensure_label(tag)
         if new_id < 0 and tag not in self.data_manager.label_to_id:
             QtWidgets.QMessageBox.warning(
@@ -1149,8 +1170,11 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
             return
         current_tags.append(tag)
         self.data_manager.set_image_labels(full, current_tags)
-        self._refresh_global_label_list()
         self._add_single_tag_chip(tag)
+        if not tag_existed:
+            self._refresh_global_label_list()
+        else:
+            self._update_global_tag_check_states()
         # update left tree item
         item = self.item_by_path.get(full)
         if item:
@@ -1199,6 +1223,8 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
     def _refresh_global_label_list(self):
         self._sync_groups_from_manager()
         self.global_tag_tree.clear()
+        self._global_tree_tag_items.clear()
+        self._global_tree_group_items.clear()
         current_tags = set()
         if 0 <= self.current_index < len(self.image_paths):
             current_tags = set(self.data_manager.get_image_labels(self.image_paths[self.current_index]))
@@ -1208,6 +1234,7 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
             group_item = QtWidgets.QTreeWidgetItem([group, ""])
             group_item.setFirstColumnSpanned(True)
             self.global_tag_tree.addTopLevelItem(group_item)
+            self._global_tree_group_items[group] = group_item
 
             labels = self.label_groups[group]
             labels_sorted = sorted(
@@ -1232,12 +1259,14 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
                     child.setToolTip(0, desc)
                     child.setToolTip(1, desc)
                 group_item.addChild(child)
+                self._global_tree_tag_items[name] = child
 
             group_item.setExpanded(True)
 
         self.global_tag_tree.expandAll()
         self._suppress_global_tag_item_changed = False
         self._update_global_tag_check_states()
+        self._apply_global_tag_filter()
 
     def _on_global_tag_clicked(self, item: QtWidgets.QTreeWidgetItem, column: int):
         # chỉ click vào child (tag), không phải group header
@@ -1247,6 +1276,30 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
             return
         new_state = Qt.Checked if item.checkState(0) == Qt.Unchecked else Qt.Unchecked
         item.setCheckState(0, new_state)
+
+    def _on_global_tag_search_changed(self, _text: str):
+        # debounce để tránh lag khi labels.json rất lớn
+        self._global_tag_filter_timer.start(120)
+
+    def _apply_global_tag_filter(self):
+        query = self.global_tag_search.text().strip().lower() if hasattr(self, "global_tag_search") else ""
+        root = self.global_tag_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            group_item = root.child(i)
+            group_visible = False
+            for j in range(group_item.childCount()):
+                child = group_item.child(j)
+                tag = child.data(0, Qt.UserRole)
+                if not isinstance(tag, str):
+                    child.setHidden(False)
+                    group_visible = True
+                    continue
+                desc = self.label_descriptions.get(tag, "")
+                matched = (not query) or (query in tag.lower()) or (query in desc.lower())
+                child.setHidden(not matched)
+                if matched:
+                    group_visible = True
+            group_item.setHidden(not group_visible)
 
     def _on_global_tag_context_menu(self, pos: QtCore.QPoint):
         item = self.global_tag_tree.itemAt(pos)
@@ -1301,6 +1354,7 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
 
         self._refresh_global_label_list()
         self._update_label_counter()
+        self._update_global_tag_check_states()
         self._maybe_save()
 
     # ----- navigation -----
@@ -1408,6 +1462,7 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
 
         # 7. Update số lượng và Save
         self._update_label_counter()
+        self._update_global_tag_check_states()
         self._maybe_save()
         
         # (Optional) Thông báo nhỏ dưới status bar nếu muốn
@@ -1493,10 +1548,11 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
     # ----update label count -----
     def _update_label_counter(self):
         total = len(self.image_paths)
-        labeled = 0
-        for p in self.image_paths:
-            if self.data_manager.get_image_labels(p):
-                labeled += 1
+        labeled = sum(
+            1
+            for p in self.image_paths
+            if self.data_manager.image_entries.get(p, {}).get("labels_str", "")
+        )
         self.lbl_label_count.setText(f"Labeled: {labeled} / {total}")
 
     # ----event filter -----
