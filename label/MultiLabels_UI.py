@@ -437,6 +437,8 @@ class LabelDataManager:
             labels_str = item.get("labels", "").strip()
             full_path = os.path.join(directory, image_name)
             labels_list = [t.strip() for t in labels_str.split(",") if t.strip()]
+            labels_list.sort(key= lambda t: self.label_to_id.get(t, float('inf')))
+            labels_str = ",".join(labels_list)
             self.image_entries[full_path] = {
                 "directory": directory,
                 "image_name": image_name,
@@ -470,7 +472,7 @@ class LabelDataManager:
 
         os.makedirs(os.path.dirname(self.json_path) or ".", exist_ok=True)
         with open(self.json_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+            json.dump(data, f, ensure_ascii=False, separators=(",", ":"), indent=2)
 
     # ---------- Labels ----------
 
