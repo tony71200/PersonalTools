@@ -35,20 +35,30 @@ class FlowLayout(QtWidgets.QLayout):
             self.setContentsMargins(margin, margin, margin, margin)
 
     def __del__(self):
-        item = self.takeAt(0)
-        while item:
-            item = self.takeAt(0)
+        # Không gọi takeAt()/activate() trong destructor vì đối tượng C++
+        # có thể đã bị Qt hủy trước Python GC.
+        try:
+            self.item_list.clear()
+        except RuntimeError:
+            pass
+
+    def _request_relayout(self):
+        try:
+            self.invalidate()
+            self.activate()
+        except (AttributeError, RuntimeError):
+            try:
+                w = self.parentWidget()
+                if w is not None:
+                    w.updateGeometry()
+                    w.update()
+            except RuntimeError:
+                # parent/layout đã bị hủy, bỏ qua an toàn
+                pass
 
     def addItem(self, item):
         self.item_list.append(item)
-        self.invalidate()
-        try:
-            self.activate()
-        except AttributeError:
-            w = self.parentWidget()
-            if w is not None:
-                w.updateGeometry()
-                w.update()
+        self._request_relayout()
 
     def count(self):
         return len(self.item_list)
@@ -61,14 +71,7 @@ class FlowLayout(QtWidgets.QLayout):
     def takeAt(self, index):
         if 0 <= index < len(self.item_list):
             item = self.item_list.pop(index)
-            #self.invalidate()
-            try:
-                self.activate()
-            except AttributeError:
-                w = self.parentWidget()
-                if w is not None:
-                    w.updateGeometry()
-                    w.update()
+            self._request_relayout()
             return item       
         return None
 
