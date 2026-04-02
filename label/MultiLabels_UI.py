@@ -35,20 +35,30 @@ class FlowLayout(QtWidgets.QLayout):
             self.setContentsMargins(margin, margin, margin, margin)
 
     def __del__(self):
-        item = self.takeAt(0)
-        while item:
-            item = self.takeAt(0)
+        # Không gọi takeAt()/activate() trong destructor vì đối tượng C++
+        # có thể đã bị Qt hủy trước Python GC.
+        try:
+            self.item_list.clear()
+        except RuntimeError:
+            pass
+
+    def _request_relayout(self):
+        try:
+            self.invalidate()
+            self.activate()
+        except (AttributeError, RuntimeError):
+            try:
+                w = self.parentWidget()
+                if w is not None:
+                    w.updateGeometry()
+                    w.update()
+            except RuntimeError:
+                # parent/layout đã bị hủy, bỏ qua an toàn
+                pass
 
     def addItem(self, item):
         self.item_list.append(item)
-        self.invalidate()
-        try:
-            self.activate()
-        except AttributeError:
-            w = self.parentWidget()
-            if w is not None:
-                w.updateGeometry()
-                w.update()
+        self._request_relayout()
 
     def count(self):
         return len(self.item_list)
@@ -61,14 +71,7 @@ class FlowLayout(QtWidgets.QLayout):
     def takeAt(self, index):
         if 0 <= index < len(self.item_list):
             item = self.item_list.pop(index)
-            #self.invalidate()
-            try:
-                self.activate()
-            except AttributeError:
-                w = self.parentWidget()
-                if w is not None:
-                    w.updateGeometry()
-                    w.update()
+            self._request_relayout()
             return item       
         return None
 
@@ -197,34 +200,44 @@ def ensure_default_labels_file() -> Dict[str, List[str]]:
     {
         "groups": {
             "style": [
-            "realistic",
-            "semi-realistic",
-            "anime"
+                "realistic",
+                "semi-realistic",
+                "anime"
             ],
+
             "nsfw_level": [
-                "sfw",              // an toàn, không nhạy cảm
-                "suggestive",       // gợi cảm (pose, quần áo ôm, khoe body nhẹ)
-                "mild_nudity",      // hở ngực/mông nhẹ, đồ lót, đồ bơi, che tay/tóc
-                "explicit_nudity"   // thấy rõ ngực trần, mông rõ, bộ phận sinh dục, sex
+                "sfw",
+                "suggestive",
+                "mild_nudity",
+                "explicit_nudity"
             ],
-            "exposure_region": [
-                "swimwear_or_underwear",       // đồ bơi hoặc đồ lót
-                "partially_exposed_buttocks",  // hở một phần mông
-                "exposed_buttocks_or_anus",    // hở rõ mông / khe / hậu môn
-                "upper_body_exposed",          // hở phần thân trên (ngực, vai, bụng)
-                "bare_chest",                  // ngực trần (thường cho nam)
-                "exposed_male_nipple",         // thấy rõ núm vú nam
-                "obstructed_intimate_parts",   // chỗ nhạy cảm bị che tay/tóc/đồ vật
-                "partially_exposed_genitalia", // lộ một phần bộ phận sinh dục
-                "exposed_male_genitalia"       // lộ rõ bộ phận sinh dục nam
+
+            "clothing": [
+                "fully_clothed",
+                "casual_wear",
+                "swimwear",
+                "underwear",
+                "shirtless",
+                "bottomless"
             ],
+
+            "exposure": [
+                "no_exposure",
+                "upper_body_exposed",
+                "nipple_visible",
+                "butt_exposed",
+                "partial_genital",
+                "genital_exposed",
+                "obstructed_intimate_parts"
+            ],
+
             "activity": [
-                "no_sexual_activity",     // không có hành vi mang tính sexual (có thể bỏ nếu không cần negative)
-                "kissing",                // hôn
-                "intimate_touching",      // chạm vùng nhạy cảm (tự chạm hoặc người khác)
-                "suggestive_pose",        // pose gợi cảm, body language sexy
-                "implied_sexual_activity",// ám chỉ sex (trên giường, mặt đỏ, tư thế rõ ràng…)
-                "explicit_sexual_activity"// đang có hành vi sex rõ ràng
+                "no_sexual_activity",
+                "kissing",
+                "intimate_touching",
+                "suggestive_pose",
+                "implied_sexual_activity",
+                "explicit_sexual_activity"
             ]
         }
     }
@@ -232,33 +245,48 @@ def ensure_default_labels_file() -> Dict[str, List[str]]:
     """
     if not os.path.exists(DEFAULT_LABELS_PATH):
         data = {
-            "groups": {
-                "style": ['realistic', 'semi-realistic', 'anime'],
-                "nsfw_level": [
-                                "sfw",              # an toàn, không nhạy cảm
-                                "suggestive",       # gợi cảm (pose, quần áo ôm, khoe body nhẹ)
-                                "mild_nudity",      # hở ngực/mông nhẹ, đồ lót, đồ bơi, che tay/tóc
-                                "explicit_nudity"   # thấy rõ ngực trần, mông rõ, bộ phận sinh dục, sex
-                               ],
-                "exposure_region": [
-                    "swimwear_or_underwear",       # đồ bơi hoặc đồ lót
-                    "partially_exposed_buttocks",  # hở một phần mông
-                    "exposed_buttocks_or_anus",    # hở rõ mông / khe / hậu môn
-                    "upper_body_exposed",          # hở phần thân trên (ngực, vai, bụng)
-                    "bare_chest",                  # ngực trần (thường cho nam)
-                    "exposed_male_nipple",         # thấy rõ núm vú nam
-                    "obstructed_intimate_parts",   # chỗ nhạy cảm bị che tay/tóc/đồ vật
-                    "partially_exposed_genitalia", # lộ một phần bộ phận sinh dục
-                    "exposed_male_genitalia"       # lộ rõ bộ phận sinh dục nam
-                ],
-                "activity": [
-                    "no_sexual_activity",     # không có hành vi mang tính sexual (có thể bỏ nếu không cần negative)
-                    "kissing",                # hôn
-                    "intimate_touching",      # chạm vùng nhạy cảm (tự chạm hoặc người khác)
-                    "suggestive_pose",        # pose gợi cảm, body language sexy
-                    "implied_sexual_activity",# ám chỉ sex (trên giường, mặt đỏ, tư thế rõ ràng…)
-                    "explicit_sexual_activity"# đang có hành vi sex rõ ràng
-                ],
+                "groups": {
+                
+                    "style": [
+                        "realistic",
+                        "semi-realistic",
+                        "anime"
+                    ],
+
+                    "nsfw_level": [
+                        "sfw",              # an toàn, không nhạy cảm
+                        "suggestive",       # gợi cảm (pose, quần áo ôm, khoe body nhẹ)
+                        "mild_nudity",      # hở ngực/mông nhẹ, đồ lót, đồ bơi, che tay/tóc
+                        "explicit_nudity"   # thấy rõ ngực trần, mông rõ, bộ phận sinh dục, sex
+                    ],
+
+                    "clothing": [
+                        "fully_clothed",    # mặc đầy đủ quần áo, không lộ da nhạy cảm
+                        "casual_wear",      # quần áo bình thường (áo thun, quần dài, v.v.)
+                        "swimwear",         # đồ bơi (bikini, swim trunks, v.v.)
+                        "underwear",        # đồ lót (briefs, boxers, v.v.)
+                        "shirtless",        # không mặc áo
+                        "bottomless"        # không mặc quần
+                    ],
+
+                    "exposure": [
+                        "no_exposure",              #không lộ vùng nhạy cảm    
+                        "upper_body_exposed",       # lộ phần thân trên (ngực, vai, bụng)
+                        "nipple_visible",           # thấy rõ núm vú
+                        "butt_exposed",             # lộ mông
+                        "partial_genital",          # lộ một phần bộ phận sinh dục
+                        "genital_exposed",          # lộ rõ bộ phận sinh dục
+                        "obstructed_intimate_parts" # vùng nhạy cảm bị che bởi tay/tóc/vật thể
+                    ],
+
+                    "activity": [
+                        "no_sexual_activity",       # không có hành vi sexual
+                        "kissing",                  # hôn
+                        "intimate_touching",        # chạm vào vùng nhạy cảm
+                        "suggestive_pose",          # tư thế gợi cảm
+                        "implied_sexual_activity",  # ám chỉ hành vi sexual
+                        "explicit_sexual_activity"  # hành vi sexual rõ ràng
+                    ],
                 "other": []
             }
         }
@@ -321,6 +349,40 @@ def flatten_default_labels(groups: Dict[str, List[str]]) -> List[str]:
     return out
 
 
+def merge_labels_with_defaults(existing_labels: Dict[int, str], 
+                               default_labels_list: List[str]) -> Dict[int, str]:
+    """
+    Merge existing labels với default labels.
+    - Rebuild labels theo thứ tự của default_labels_list (để đảm bảo ID consistency)
+    - Giữ lại các tags custom từ existing_labels không có trong default
+    
+    Args:
+        existing_labels: {id: tag_name} từ labels.json cũ
+        default_labels_list: [tag_name, ...] từ default_labels.json
+    
+    Returns:
+        Dict[int, str] với labels đã merge (theo thứ tự default)
+    """
+    merged = {}
+    existing_tag_names = set(existing_labels.values())
+    
+    # Rebuild theo thứ tự của default_labels_list
+    for idx, tag in enumerate(default_labels_list):
+        if idx < MAX_LABELS:
+            merged[idx] = tag
+    
+    # Thêm các tags custom (không có trong default) từ existing
+    max_idx = len(default_labels_list)
+    for old_id, tag in existing_labels.items():
+        if tag not in default_labels_list:
+            # Tag này là custom, thêm vào cuối
+            if max_idx < MAX_LABELS:
+                merged[max_idx] = tag
+                max_idx += 1
+    
+    return merged
+
+
 # ======================= Data manager =======================
 
 class LabelDataManager:
@@ -361,6 +423,11 @@ class LabelDataManager:
         self.label_names = {
             int(k): v for k, v in data.get("label_names", {}).items()
         }
+        
+        # Merge với default_labels nếu có tag mới từ default_labels.json
+        if self.default_labels:
+            self.label_names = merge_labels_with_defaults(self.label_names, self.default_labels)
+        
         self.label_to_id = {v: k for k, v in self.label_names.items()}
 
         self.image_entries.clear()
@@ -369,10 +436,14 @@ class LabelDataManager:
             image_name = item.get("image_name", "")
             labels_str = item.get("labels", "").strip()
             full_path = os.path.join(directory, image_name)
+            labels_list = [t.strip() for t in labels_str.split(",") if t.strip()]
+            labels_list.sort(key= lambda t: self.label_to_id.get(t, float('inf')))
+            labels_str = ",".join(labels_list)
             self.image_entries[full_path] = {
                 "directory": directory,
                 "image_name": image_name,
                 "labels_str": labels_str,
+                "labels_list": labels_list,
             }
 
     def _init_empty(self):
@@ -401,7 +472,7 @@ class LabelDataManager:
 
         os.makedirs(os.path.dirname(self.json_path) or ".", exist_ok=True)
         with open(self.json_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, separators=(",", ":"), indent=2)
 
     # ---------- Labels ----------
 
@@ -431,7 +502,7 @@ class LabelDataManager:
             if not labels_str:
                 continue
             labels = [t.strip() for t in labels_str.split(",") if t.strip() and t.strip() != tag]
-            entry["labels_str"] = ",".join(sorted(set(labels)))
+            self.set_image_labels(full, labels)
 
         # reindex 0..N-1 nhưng không ảnh hưởng labels_str (vì đang lưu bằng tên)
         old_items = sorted(self.label_names.items(), key=lambda kv: kv[0])
@@ -447,26 +518,28 @@ class LabelDataManager:
     # ---------- Per-image labels ----------
 
     def get_image_labels(self, full_path: str) -> List[str]:
-        if full_path not in self.image_entries:
+        entry = self.image_entries.get(full_path)
+        if not entry:
             return []
-        labels_str = self.image_entries[full_path].get("labels_str", "").strip()
-        if not labels_str:
-            return []
-        return [t for t in labels_str.split(",") if t.strip()]
+        labels_list = entry.get("labels_list", [])
+        return list(labels_list)
 
     def set_image_labels(self, full_path: str, tags: List[str]):
         tags = [t.strip() for t in tags if t.strip()]
         dir_path, fname = os.path.split(full_path)
-        labels_str = ",".join(sorted(set(tags)))
+        labels_list = sorted(set(tags), key=lambda t: self.label_to_id.get(t, 99999))
+        labels_str = ",".join(labels_list)
 
         if full_path not in self.image_entries:
             self.image_entries[full_path] = {
                 "directory": dir_path,
                 "image_name": fname,
                 "labels_str": labels_str,
+                "labels_list": labels_list,
             }
         else:
             self.image_entries[full_path]["labels_str"] = labels_str
+            self.image_entries[full_path]["labels_list"] = labels_list
 
 
 # ======================= Main window =======================
@@ -503,6 +576,12 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
         )
 
         self.auto_save = True
+        self._suppress_global_tag_item_changed = False
+        self._global_tree_tag_items: Dict[str, QtWidgets.QTreeWidgetItem] = {}
+        self._global_tree_group_items: Dict[str, QtWidgets.QTreeWidgetItem] = {}
+        self._global_tag_filter_timer = QtCore.QTimer(self)
+        self._global_tag_filter_timer.setSingleShot(True)
+        self._global_tag_filter_timer.timeout.connect(self._apply_global_tag_filter)
 
         self.image_paths: List[str] = []
         self.current_index: int = -1
@@ -593,6 +672,10 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setHeaderHidden(False)
         self.tree.setHeaderLabels(["Tên", "Trạng thái"])
+        header = self.tree.header()
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.Interactive)
+        header.setSectionResizeMode(1, QtWidgets.QHeaderView.Interactive)
+        header.setStretchLastSection(False)
         self.tree.itemClicked.connect(self._on_tree_item_clicked)
 
         layout.addLayout(btn_layout)
@@ -670,13 +753,27 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(group)
 
         layout.addWidget(QtWidgets.QLabel("Tất cả tag đã tạo (nhóm):"))
+        self.global_tag_search = QtWidgets.QLineEdit()
+        self.global_tag_search.setPlaceholderText("Tìm tag trong danh sách...")
+        self.global_tag_search.textChanged.connect(self._on_global_tag_search_changed)
+        layout.addWidget(self.global_tag_search)
 
-        # nút same
+        # nút same + remove non-default
+        btn_layout = QtWidgets.QHBoxLayout()
+        
         self.btn_same_prev = QtWidgets.QPushButton("same")
         self.btn_same_prev.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_BrowserReload))
         self.btn_same_prev.setToolTip("Copy toàn bộ tag từ ảnh trước đó")
         self.btn_same_prev.clicked.connect(self._on_copy_prev_labels)
-        layout.addWidget(self.btn_same_prev)
+        
+        self.btn_remove_non_default = QtWidgets.QPushButton("Remove non-default")
+        self.btn_remove_non_default.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DialogCancelButton))
+        self.btn_remove_non_default.setToolTip("Loại bỏ tất cả label không có trong default_labels.json")
+        self.btn_remove_non_default.clicked.connect(self._on_remove_non_default_labels)
+        
+        btn_layout.addWidget(self.btn_same_prev)
+        btn_layout.addWidget(self.btn_remove_non_default)
+        layout.addLayout(btn_layout)
 
         # Tree: group -> tag (ID, name)
         self.global_tag_tree = QtWidgets.QTreeWidget()
@@ -686,6 +783,7 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
         self.global_tag_tree.header().setSectionResizeMode(
             1, QtWidgets.QHeaderView.Stretch)
         self.global_tag_tree.itemClicked.connect(self._on_global_tag_clicked)
+        self.global_tag_tree.itemChanged.connect(self._on_global_tag_item_changed)
         self.global_tag_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.global_tag_tree.customContextMenuRequested.connect(
             self._on_global_tag_context_menu
@@ -725,10 +823,47 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
             json_path=json_path,
             default_labels=self.default_label_names
         )
+        
+        # Nếu labels.json tồn tại, cần renormalize paths để match với folder hiện tại
+        # vì labels.json có thể lưu paths từ folder khác
+        if os.path.exists(json_path):
+            self._renormalize_image_paths(folder)
+        
+        # Nếu labels.json không tồn tại, lưu ngay để có default_labels
+        if not os.path.exists(json_path):
+            self.data_manager.save()
+        else:
+            # Nếu có thay đổi từ default_labels, lưu lại để cập nhật
+            self.data_manager.save()
+        
         self._sync_groups_from_manager()
         self._refresh_global_label_list()
         self.current_root_folder = folder
         self._build_tree_from_folder(folder)
+    
+    def _renormalize_image_paths(self, current_folder: str):
+        """
+        Cấp nhật đường dẫn ảnh trong data_manager để match với current_folder
+        (vì labels.json có thể được tạo từ folder khác)
+        """
+        new_entries = {}
+        for old_full_path, entry in self.data_manager.image_entries.items():
+            image_name = entry.get("image_name", "")
+            if image_name:
+                # Tạo full_path mới từ current_folder
+                new_full_path = os.path.join(current_folder, image_name)
+                # Update directory
+                new_entries[new_full_path] = {
+                    "directory": current_folder,
+                    "image_name": image_name,
+                    "labels_str": entry.get("labels_str", ""),
+                    "labels_list": entry.get("labels_list", []),
+                }
+            else:
+                # Nếu không có image_name, giữ lại cũ
+                new_entries[old_full_path] = entry
+        
+        self.data_manager.image_entries = new_entries
 
     def _build_tree_from_folder(self, root_folder: str):
         self.tree.clear()
@@ -743,6 +878,7 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
 
         self._update_all_folder_check_state()
         self._update_label_counter()
+        self._update_tree_column_widths()
 
     def _create_folder_item(self, folder: str, is_root=False) -> QtWidgets.QTreeWidgetItem:
         name = os.path.basename(folder) or folder
@@ -854,16 +990,19 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
     def _load_current_image(self):
         if not (0 <= self.current_index < len(self.image_paths)):
             self.lbl_current_path.setText("No image selected")
+            self.lbl_current_path.setToolTip("")
             self._set_image_pixmap(None)
             self._clear_tag_widgets()
             return
 
         full = self.image_paths[self.current_index]
-        self.lbl_current_path.setText(full)
+        self.lbl_current_path.setText(self._shorten_path(full, max_length=35))
+        self.lbl_current_path.setToolTip(full)
         self._set_image_pixmap(full)
 
         tags = self.data_manager.get_image_labels(full)
         self._set_tag_widgets(tags)
+        self._update_global_tag_check_states()
 
         # chọn item trong tree cho đồng bộ
         item = self.item_by_path.get(full)
@@ -883,11 +1022,87 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
         )
         self.image_label.setPixmap(scaled)
 
+    def _shorten_path(self, path: str, max_length: int = 35) -> str:
+        if len(path) <= max_length:
+            return path
+        keep = max_length - 5
+        prefix_len = keep // 2
+        suffix_len = keep - prefix_len
+        return f"{path[:prefix_len]} ... {path[-suffix_len:]}"
+
+    def _update_tree_column_widths(self):
+        if not hasattr(self, "tree"):
+            return
+        total_width = self.tree.viewport().width()
+        if total_width <= 0:
+            return
+        name_width = int(total_width * 0.7)
+        state_width = max(total_width - name_width, 80)
+        self.tree.header().resizeSection(0, name_width)
+        self.tree.header().resizeSection(1, state_width)
+
+    def _update_global_tag_check_states(self):
+        if not hasattr(self, "global_tag_tree"):
+            return
+        current_tags = set()
+        if 0 <= self.current_index < len(self.image_paths):
+            current_tags = set(self.data_manager.get_image_labels(self.image_paths[self.current_index]))
+
+        self._suppress_global_tag_item_changed = True
+        root = self.global_tag_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            group_item = root.child(i)
+            for j in range(group_item.childCount()):
+                child = group_item.child(j)
+                tag = child.data(0, Qt.UserRole)
+                if isinstance(tag, str):
+                    child.setCheckState(0, Qt.Checked if tag in current_tags else Qt.Unchecked)
+        self._suppress_global_tag_item_changed = False
+
+    def _on_global_tag_item_changed(self, item: QtWidgets.QTreeWidgetItem, column: int):
+        if self._suppress_global_tag_item_changed:
+            return
+        if item.parent() is None or column != 0:
+            return
+        tag = item.data(0, Qt.UserRole)
+        if not isinstance(tag, str):
+            return
+        if not (0 <= self.current_index < len(self.image_paths)):
+            self._update_global_tag_check_states()
+            return
+        if item.checkState(0) == Qt.Checked:
+            self._add_tag_to_current_image(tag)
+        else:
+            self._remove_tag_from_current_image(tag)
+
+    def _remove_tag_from_current_image(self, tag: str):
+        if not (0 <= self.current_index < len(self.image_paths)):
+            return
+        full = self.image_paths[self.current_index]
+        tags = self.data_manager.get_image_labels(full)
+        if tag not in tags:
+            return
+        tags = [t for t in tags if t != tag]
+        self.data_manager.set_image_labels(full, tags)
+        self._set_tag_widgets(tags)
+
+        item_tree = self.item_by_path.get(full)
+        if item_tree:
+            self._update_image_item_state(item_tree, full)
+            parent = item_tree.parent()
+            while parent:
+                self._update_single_folder_check_state(parent)
+                parent = parent.parent()
+        self._update_label_counter()
+        self._update_global_tag_check_states()
+        self._maybe_save()
+
     def resizeEvent(self, event: QtGui.QResizeEvent):
         super().resizeEvent(event)
         # scale lại ảnh khi window resize
         if 0 <= self.current_index < len(self.image_paths):
             self._set_image_pixmap(self.image_paths[self.current_index])
+        self._update_tree_column_widths()
 
     def _clear_tag_widgets(self):
         while self.tags_layout.count():
@@ -934,6 +1149,7 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
             return
 
         # ensure label tồn tại trong vocab
+        tag_existed = tag in self.data_manager.label_to_id
         new_id = self.data_manager.ensure_label(tag)
         if new_id < 0 and tag not in self.data_manager.label_to_id:
             QtWidgets.QMessageBox.warning(
@@ -948,16 +1164,17 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
             self.label_name_to_group[tag] = "other"
             self.label_groups.setdefault("other", []).append(tag)
 
-        self._refresh_global_label_list()
-
         full = self.image_paths[self.current_index]
         current_tags = self.data_manager.get_image_labels(full)
         if tag in current_tags:
             return
         current_tags.append(tag)
         self.data_manager.set_image_labels(full, current_tags)
-
         self._add_single_tag_chip(tag)
+        if not tag_existed:
+            self._refresh_global_label_list()
+        else:
+            self._update_global_tag_check_states()
         # update left tree item
         item = self.item_by_path.get(full)
         if item:
@@ -998,6 +1215,7 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
                 self._update_single_folder_check_state(parent)
                 parent = parent.parent()
         self._update_label_counter()
+        self._update_global_tag_check_states()
         self._maybe_save()
 
     # ----- global tag tree -----
@@ -1005,22 +1223,35 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
     def _refresh_global_label_list(self):
         self._sync_groups_from_manager()
         self.global_tag_tree.clear()
+        self._global_tree_tag_items.clear()
+        self._global_tree_group_items.clear()
+        current_tags = set()
+        if 0 <= self.current_index < len(self.image_paths):
+            current_tags = set(self.data_manager.get_image_labels(self.image_paths[self.current_index]))
 
+        self._suppress_global_tag_item_changed = True
         for group in self.label_groups.keys():
             group_item = QtWidgets.QTreeWidgetItem([group, ""])
             group_item.setFirstColumnSpanned(True)
             self.global_tag_tree.addTopLevelItem(group_item)
+            self._global_tree_group_items[group] = group_item
 
             labels = self.label_groups[group]
             labels_sorted = sorted(
                 labels,
                 key=lambda name: self.data_manager.label_to_id.get(name, 999999)
             )
+            current_tags = set()
+            if 0 <= self.current_index < len(self.image_paths):
+                current_tags = set(self.data_manager.get_image_labels(self.image_paths[self.current_index]))
+
             for name in labels_sorted:
                 label_id = self.data_manager.label_to_id.get(name, -1)
                 id_str = str(label_id) if label_id >= 0 else "-"
                 child = QtWidgets.QTreeWidgetItem([id_str, name])
                 child.setData(0, Qt.UserRole, name)  # lưu tên để dùng khi click
+                child.setFlags(child.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+                child.setCheckState(0, Qt.Checked if name in current_tags else Qt.Unchecked)
 
                 # tooltip: nghĩa tiếng Việt của tag
                 desc = self.label_descriptions.get(name)
@@ -1028,19 +1259,47 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
                     child.setToolTip(0, desc)
                     child.setToolTip(1, desc)
                 group_item.addChild(child)
+                self._global_tree_tag_items[name] = child
 
             group_item.setExpanded(True)
 
         self.global_tag_tree.expandAll()
+        self._suppress_global_tag_item_changed = False
+        self._update_global_tag_check_states()
+        self._apply_global_tag_filter()
 
     def _on_global_tag_clicked(self, item: QtWidgets.QTreeWidgetItem, column: int):
         # chỉ click vào child (tag), không phải group header
-        if item.parent() is None:
+        if item is None or item.parent() is None:
             return
-        tag = item.data(0, Qt.UserRole)
-        if not isinstance(tag, str):
+        if column != 1:
             return
-        self._add_tag_to_current_image(tag)
+        new_state = Qt.Checked if item.checkState(0) == Qt.Unchecked else Qt.Unchecked
+        item.setCheckState(0, new_state)
+
+    def _on_global_tag_search_changed(self, _text: str):
+        # debounce để tránh lag khi labels.json rất lớn
+        self._global_tag_filter_timer.start(120)
+
+    def _apply_global_tag_filter(self):
+        query = self.global_tag_search.text().strip().lower() if hasattr(self, "global_tag_search") else ""
+        root = self.global_tag_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            group_item = root.child(i)
+            group_visible = False
+            for j in range(group_item.childCount()):
+                child = group_item.child(j)
+                tag = child.data(0, Qt.UserRole)
+                if not isinstance(tag, str):
+                    child.setHidden(False)
+                    group_visible = True
+                    continue
+                desc = self.label_descriptions.get(tag, "")
+                matched = (not query) or (query in tag.lower()) or (query in desc.lower())
+                child.setHidden(not matched)
+                if matched:
+                    group_visible = True
+            group_item.setHidden(not group_visible)
 
     def _on_global_tag_context_menu(self, pos: QtCore.QPoint):
         item = self.global_tag_tree.itemAt(pos)
@@ -1095,6 +1354,7 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
 
         self._refresh_global_label_list()
         self._update_label_counter()
+        self._update_global_tag_check_states()
         self._maybe_save()
 
     # ----- navigation -----
@@ -1202,18 +1462,97 @@ class ImageTaggerWindow(QtWidgets.QMainWindow):
 
         # 7. Update số lượng và Save
         self._update_label_counter()
+        self._update_global_tag_check_states()
         self._maybe_save()
         
         # (Optional) Thông báo nhỏ dưới status bar nếu muốn
         self.statusBar().showMessage(f"Đã copy {len(new_tags)} tags từ ảnh trước.", 2000)
 
+    def _on_remove_non_default_labels(self):
+        """
+        Loại bỏ tất cả label không có trong default_labels.json
+        từ tất cả ảnh
+        """
+        if not self.current_root_folder:
+            QtWidgets.QMessageBox.warning(
+                self, "Cảnh báo", "Vui lòng load folder trước tiên."
+            )
+            return
+        
+        # Tạo set các default labels
+        default_tags_set = set(self.default_label_names)
+        
+        # Tìm các tags non-default
+        non_default_tags = set()
+        for full_path, entry in self.data_manager.image_entries.items():
+            labels_str = entry.get("labels_str", "").strip()
+            if labels_str:
+                tags = [t.strip() for t in labels_str.split(",") if t.strip()]
+                for tag in tags:
+                    if tag not in default_tags_set:
+                        non_default_tags.add(tag)
+        
+        if not non_default_tags:
+            QtWidgets.QMessageBox.information(
+                self, "Thông báo",
+                "Không có label nào không có trong default_labels.json"
+            )
+            return
+        
+        # Xác nhận
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Xác nhận xóa",
+            f"Loại bỏ {len(non_default_tags)} label không có trong default:\n\n" +
+            "\n".join(sorted(list(non_default_tags))[:10]) +
+            ("\n..." if len(non_default_tags) > 10 else ""),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+        
+        # Loại bỏ non-default labels khỏi tất cả ảnh
+        for full_path, entry in self.data_manager.image_entries.items():
+            labels_str = entry.get("labels_str", "").strip()
+            if not labels_str:
+                continue
+            tags = [t.strip() for t in labels_str.split(",") if t.strip()]
+            # Giữ lại chỉ tags có trong default
+            tags = [t for t in tags if t in default_tags_set]
+            self.data_manager.set_image_labels(full_path, tags)
+        
+        # Xóa non-default tags khỏi label_names
+        for tag in non_default_tags:
+            self.data_manager.delete_label(tag)
+        
+        # Refresh UI
+        if 0 <= self.current_index < len(self.image_paths):
+            full = self.image_paths[self.current_index]
+            tags = self.data_manager.get_image_labels(full)
+            self._set_tag_widgets(tags)
+        
+        for full, item in self.item_by_path.items():
+            self._update_image_item_state(item, full)
+        self._update_all_folder_check_state()
+        
+        self._refresh_global_label_list()
+        self._update_label_counter()
+        self._maybe_save()
+        
+        QtWidgets.QMessageBox.information(
+            self, "Thành công",
+            f"Đã loại bỏ {len(non_default_tags)} label không có trong default"
+        )
+
     # ----update label count -----
     def _update_label_counter(self):
         total = len(self.image_paths)
-        labeled = 0
-        for p in self.image_paths:
-            if self.data_manager.get_image_labels(p):
-                labeled += 1
+        labeled = sum(
+            1
+            for p in self.image_paths
+            if self.data_manager.image_entries.get(p, {}).get("labels_str", "")
+        )
         self.lbl_label_count.setText(f"Labeled: {labeled} / {total}")
 
     # ----event filter -----

@@ -820,7 +820,7 @@ class MergeVideoTab(QWidget):
             QMessageBox.warning(self, "Thiếu video", "Selected area đang trống.")
             return
         if (len(ordered) > 0):
-            filename = os.path.split(os.path.dirname(ordered[0]))[-1]
+            filename = os.path.dirname(ordered[0])
         else:
             filename = ""
 

@@ -1,58 +1,77 @@
 {
   "groups": {
-      "style": [
+    "style": [
       "realistic",
       "semi-realistic",
       "anime"
-      ],
-      "nsfw_level": [
-          "sfw",              
-          "suggestive",       
-          "mild_nudity",      
-          "explicit_nudity"   
-      ],
-      "exposure_region": [
-          "swimwear_or_underwear",       
-          "partially_exposed_buttocks",  
-          "exposed_buttocks_or_anus",    
-          "upper_body_exposed",          
-          "bare_chest",                  
-          "exposed_male_nipple",         
-          "obstructed_intimate_parts",   
-          "partially_exposed_genitalia", 
-          "exposed_male_genitalia"       
-      ],
-      "activity": [
-          "no_sexual_activity",     
-          "kissing",                
-          "intimate_touching",      
-          "suggestive_pose",        
-          "implied_sexual_activity",
-          "explicit_sexual_activity"
-      ]
+    ],
+
+    "nsfw_level": [
+      "sfw",
+      "suggestive",
+      "mild_nudity",
+      "explicit_nudity"
+    ],
+
+    "clothing": [
+      "fully_clothed",
+      "casual_wear",
+      "swimwear",
+      "underwear",
+      "shirtless",
+      "bottomless"
+    ],
+
+    "exposure": [
+      "no_exposure",
+      "upper_body_exposed",
+      "nipple_visible",
+      "butt_exposed",
+      "partial_genital",
+      "genital_exposed",
+      "obstructed_intimate_parts"
+    ],
+
+    "activity": [
+      "no_sexual_activity",
+      "kissing",
+      "intimate_touching",
+      "suggestive_pose",
+      "implied_sexual_activity",
+      "explicit_sexual_activity"
+    ]
   },
+
   "descriptions": {
-    "realistic": "Phong cách hiện thực, da và ánh sáng giống ảnh thật",
-    "semi-realistic": "Bán hiện thực, có nét vẽ stylized nhưng vẫn có cảm giác thật",
-    "anime": "Phong cách anime/manga, line rõ, màu trong trẻo, mắt to",
+    "realistic": "Phong cách hiện thực, giống ảnh thật",
+    "semi-realistic": "Bán hiện thực, stylized nhẹ",
+    "anime": "Phong cách anime/manga",
+
     "sfw": "an toàn, không nhạy cảm",
-    "suggestive":"gợi cảm (pose, quần áo ôm, khoe body nhẹ)",
-    "mild_nudity":"hở ngực/mông nhẹ, đồ lót, đồ bơi, che tay/tóc",
-    "explicit_nudity":"thấy rõ ngực trần, mông rõ, bộ phận sinh dục, sex",
-    "swimwear_or_underwear":"đồ bơi hoặc đồ lót",
-    "partially_exposed_buttocks":"hở một phần mông",
-    "exposed_buttocks_or_anus":"hở rõ mông / khe / hậu môn",
-    "upper_body_exposed":"hở phần thân trên (ngực, vai, bụng)",
-    "bare_chest":"ngực trần (thường cho nam)",
-    "exposed_male_nipple":"thấy rõ núm vú nam",
-    "obstructed_intimate_parts":"chỗ nhạy cảm bị che tay/tóc/đồ vật",
-    "partially_exposed_genitalia":"lộ một phần bộ phận sinh dục",
-    "exposed_male_genitalia":"lộ rõ bộ phận sinh dục nam",
-    "no_sexual_activity":"không có hành vi mang tính sexual (có thể bỏ nếu không cần negative)",
-    "kissing":"hôn",
-    "intimate_touching":"chạm vùng nhạy cảm (tự chạm hoặc người khác)",
-    "suggestive_pose":"pose gợi cảm, body language sexy",
-    "implied_sexual_activity":"ám chỉ sex (trên giường, mặt đỏ, tư thế rõ ràng…)",
-    "explicit_sexual_activity":"đang có hành vi sex rõ ràng"
+    "suggestive": "gợi cảm nhẹ (pose, body, ánh mắt)",
+    "mild_nudity": "hở da nhưng chưa lộ rõ bộ phận nhạy cảm",
+    "explicit_nudity": "lộ rõ bộ phận nhạy cảm hoặc sex",
+
+    "fully_clothed": "mặc đầy đủ quần áo, không lộ da nhạy cảm",
+    "casual_wear": "quần áo bình thường (áo thun, quần dài, v.v.)",
+    "swimwear": "đồ bơi (bikini, swim trunks, v.v.)",
+    "underwear": "đồ lót (briefs, boxers, v.v.)",
+    "shirtless": "không mặc áo",
+    "bottomless": "không mặc quần",
+
+    "no_exposure": "không lộ vùng nhạy cảm",
+    "upper_body_exposed": "lộ phần thân trên (ngực, vai, bụng)",
+    "nipple_visible": "thấy rõ núm vú",
+    "butt_exposed": "lộ mông",
+    "partial_genital": "lộ một phần bộ phận sinh dục",
+    "genital_exposed": "lộ rõ bộ phận sinh dục",
+    "obstructed_intimate_parts": "vùng nhạy cảm bị che bởi tay/tóc/vật thể",
+
+    "no_sexual_activity": "không có hành vi sexual",
+    "kissing": "hôn",
+    "intimate_touching": "chạm vào vùng nhạy cảm",
+    "suggestive_pose": "tư thế gợi cảm",
+    "implied_sexual_activity": "ám chỉ hành vi sexual",
+    "explicit_sexual_activity": "hành vi sexual rõ ràng"
   }
 }

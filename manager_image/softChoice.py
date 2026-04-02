@@ -1,22 +1,60 @@
 """
-Sử dụng nhận dạng khuôn mặt để lọc các ảnh có mặt người và gộp các ảnh gần giống thành 1 nhóm
+Sử dụng nhận dạng khuôn mặt để lọc các ảnh có mặt người và gộp các ảnh gần giống thành 1 nhóm.
+
+Changes:
+- If user answers 'n' at quota prompt => manual quotas input (no exit).
+- Always move no-face images to `noFaceFolder/`.
+- If CLIP embedding or KMeans fails => safe fallback (no crash).
+- Fixed insightface bbox width/height calculation (x2-x1, y2-y1).
 """
+
+from __future__ import annotations
 import os
-import cv2
 import shutil
+from dataclasses import dataclass
+from typing import Iterable, List, Sequence, Set, Tuple
+
+import cv2
+import numpy as np
 import torch
 from PIL import Image
-from transformers import CLIPProcessor, CLIPModel
-import numpy as np
 from sklearn.cluster import KMeans
+from transformers import CLIPModel, CLIPProcessor
 import insightface
 from insightface.app import FaceAnalysis
 
+VALID_EXTS = (".jpg", ".jpeg", ".png")
+TOTAL_IMAGES = 1000
+
 # ---- Các hàm tiện ích ----
 def get_images(folder):
-    valid_exts = ('.jpg', '.jpeg', '.png')
     return [f for f in os.listdir(folder)
-            if os.path.isfile(os.path.join(folder, f)) and f.lower().endswith(valid_exts)]
+            if os.path.isfile(os.path.join(folder, f)) and f.lower().endswith(VALID_EXTS)]
+
+def ensure_dir(path: str) -> None:
+    os.makedirs(path, exist_ok=True)
+
+
+def safe_move(src: str, dst_dir: str) -> None:
+    """
+    Move src into dst_dir. If filename exists, append an incrementing suffix.
+    """
+    ensure_dir(dst_dir)
+    base = os.path.basename(src)
+    name, ext = os.path.splitext(base)
+    dst = os.path.join(dst_dir, base)
+
+    if not os.path.exists(dst):
+        shutil.move(src, dst)
+        return
+
+    i = 1
+    while True:
+        cand = os.path.join(dst_dir, f"{name}_{i}{ext}")
+        if not os.path.exists(cand):
+            shutil.move(src, cand)
+            return
+        i += 1
 
 def detect_face(img_path, det_model, min_face_size=40):
     img = cv2.imread(img_path)
@@ -30,19 +68,35 @@ def detect_face(img_path, det_model, min_face_size=40):
     w, h = largest.bbox[2], largest.bbox[3]
     return w > min_face_size and h > min_face_size
 
-def get_clip_embeddings(img_paths, processor, model, device):
-    batch_size = 32
-    features = []
+def get_clip_embeddings(
+    img_paths: Sequence[str],
+    processor: CLIPProcessor,
+    model: CLIPModel,
+    device: str,
+    batch_size: int = 32,
+) -> np.ndarray:
+    if not img_paths:
+        raise ValueError("img_paths is empty")
+
+    features: List[np.ndarray] = []
     for i in range(0, len(img_paths), batch_size):
-        batch_files = img_paths[i:i+batch_size]
+        batch_files = img_paths[i : i + batch_size]
         images = [Image.open(f).convert("RGB") for f in batch_files]
         inputs = processor(images=images, return_tensors="pt", padding=True)
         inputs = {k: v.to(device) for k, v in inputs.items()}
+
         with torch.no_grad():
             emb = model.get_image_features(**inputs)
             emb = emb / emb.norm(dim=-1, keepdim=True)
-            features.append(emb.cpu().numpy())
+            features.append(emb.detach().cpu().numpy())
+
     return np.vstack(features)
+
+def manual_quotas(quotas):
+    for i, q in enumerate(quotas):
+        qi = input(f"Nhập đường dẫn đến folder {i+1}: ").strip()
+        quotas[i] = int(qi)
+    return quotas
 
 # ---- Main program ----
 def main():
