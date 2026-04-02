@@ -5,6 +5,8 @@ from typing import Tuple
 POST_BASE_SIZE: Tuple[int, int] = (1080, 1350)
 POST_BASE_LOGO_SIZE: Tuple[int, int] = (90, 129)
 POST_BASE_LOGO_POS: Tuple[int, int] = (60,  POST_BASE_SIZE[1] - 60 -POST_BASE_LOGO_SIZE[0])
+OLD_LOGO_COVER_REF_FRAME: Tuple[int, int] = (381, 527)
+OLD_LOGO_COVER_REF_SIZE: Tuple[int, int] = (90, 30)
 
 class LogoPosition(Enum):
     TOP_LEFT = 1
@@ -96,17 +98,38 @@ def target_post_size(width: int, height: int) -> Tuple[int, int]:
 def scale_logo_rect_for_post(target_size: Tuple[int, int]) -> Tuple[int, int, int, int]:
     """Scale logo size/position from 1080x1350 base into target frame."""
     tw, th = target_size
-    sx = tw / POST_BASE_SIZE[0]
-    sy = th / POST_BASE_SIZE[1]
+    t_size_min = min(tw, th)
+    b_size_min = min(POST_BASE_SIZE[0], POST_BASE_SIZE[1])
 
-    lw = max(1, int(round(POST_BASE_LOGO_SIZE[0] * sx)))
-    lh = max(1, int(round(POST_BASE_LOGO_SIZE[1] * sy)))
-    lx = max(0, int(round(POST_BASE_LOGO_POS[0] * sx)))
-    ly = max(0, int(round(POST_BASE_LOGO_POS[1] * sy)))
+    # sx = tw / POST_BASE_SIZE[0]
+    # sy = th / POST_BASE_SIZE[1]
+    scaled = t_size_min / b_size_min
+
+    # lw = max(1, int(round(POST_BASE_LOGO_SIZE[0] * sx)))
+    # lh = max(1, int(round(POST_BASE_LOGO_SIZE[1] * sy)))
+    # lx = max(0, int(round(POST_BASE_LOGO_POS[0] * sx)))
+    # ly = max(0, int(round(POST_BASE_LOGO_POS[1] * sy)))
+    lw = max(1, int(round(POST_BASE_LOGO_SIZE[0] * scaled)))
+    lh = max(1, int(round(POST_BASE_LOGO_SIZE[1] * scaled)))
+    lx = max(0, int(round(POST_BASE_LOGO_POS[0] * scaled)))
+    ly = max(0, int(round(POST_BASE_LOGO_POS[1] * scaled)))
 
     lx = min(lx, max(0, tw - lw))
     ly = min(ly, max(0, th - lh))
     return lw, lh, lx, ly
+
+
+def old_logo_cover_rect_bottom_right(target_size: Tuple[int, int]) -> Tuple[int, int, int, int]:
+    """Bottom-right rect to hide old logo for video flow (scaled from 381x527 -> 90x26)."""
+    tw, th = target_size
+    rw, rh = OLD_LOGO_COVER_REF_FRAME
+    cw = max(1, int(round(OLD_LOGO_COVER_REF_SIZE[0] * tw / rw)))
+    ch = max(1, int(round(OLD_LOGO_COVER_REF_SIZE[1] * th / rh)))
+    cw = min(cw, tw)
+    ch = min(ch, th)
+    cx = max(0, tw - cw)
+    cy = max(0, th - ch)
+    return cw, ch, cx, cy
 
 
 def process_post_image_with_logo(image_path: str, logo_path: str, output_path: str) -> None:
