@@ -1,0 +1,8 @@
+numpy
+opencv-python
+Pillow
+insightface
+onnxruntime
+transformers
+torch
+faiss-cpu
