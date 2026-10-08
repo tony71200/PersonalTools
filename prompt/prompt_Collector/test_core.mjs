@@ -54,4 +54,60 @@ assert.equal(C.parseState(JSON.stringify({ version: 1, items: [], keywords: [], 
   assert.deepEqual(C.parseState(JSON.stringify(s)), { state: s, corrupt: false });
 }
 
+// --- chunk / move ---
+assert.deepEqual(C.chunk([], 3), []);
+assert.deepEqual(C.chunk([1, 2, 3], 3), [[1, 2, 3]]);
+assert.deepEqual(C.chunk([1, 2, 3, 4], 3), [[1, 2, 3], [4]]);
+assert.deepEqual(C.move(["a", "b", "c", "d"], 0, 2), ["b", "c", "a", "d"]);
+assert.deepEqual(C.move(["a", "b", "c", "d"], 3, 0), ["d", "a", "b", "c"]);
+
+// --- stamp / isoLocal / fileNames ---
+const day = new Date(2026, 9, 8, 14, 2, 0);
+assert.equal(C.stamp(day), "20261008");
+assert.match(C.isoLocal(day), /^2026-10-08T14:02:00[+-]\d\d:\d\d$/);
+assert.deepEqual(C.fileNames(day, 0, "txt"), []);
+assert.deepEqual(C.fileNames(day, 1, "txt"), ["prompt_20261008.txt"]);
+assert.deepEqual(C.fileNames(day, 3, "json"), ["prompt_20261008_01.json", "prompt_20261008_02.json", "prompt_20261008_03.json"]);
+assert.equal(C.fileNames(day, 120, "txt")[0], "prompt_20261008_001.txt");
+assert.equal(C.fileNames(day, 120, "txt")[119], "prompt_20261008_120.txt");
+
+// --- buildFiles ---
+const mk = (text, i) => ({ id: "i" + i, raw: "raw " + i, text, removed: [], edited: false, addedAt: "t" });
+assert.deepEqual(C.buildFiles("txt", [], { perFile: 5, keywords: [] }).files, []);
+// 120 prompts at 50 per file: 3 files, Text_Splitter sees every prompt exactly once
+{
+  const items = Array.from({ length: 120 }, (_, i) => mk(`prompt ${i + 1}`, i));
+  const { files, skipped } = C.buildFiles("txt", items, { perFile: 50, keywords: [], now: day });
+  assert.equal(skipped, 0);
+  assert.deepEqual(files.map(f => f.name), ["prompt_20261008_01.txt", "prompt_20261008_02.txt", "prompt_20261008_03.txt"]);
+  const blocks = files.flatMap(f => f.content.split("\n\n").map(b => b.trim()).filter(Boolean)); // Text_Splitter logic
+  assert.equal(blocks.length, 120);
+  assert.equal(blocks[50], "prompt 51");
+  assert.ok(files[2].content.endsWith("prompt 120\n"));
+}
+// hand-typed blank lines are collapsed, empty prompts skipped, "###" kept
+{
+  const items = [mk("line one\n\n\nline two", 0), mk("   ", 1), mk("solo###neg", 2)];
+  const { files, skipped } = C.buildFiles("txt", items, { perFile: 50, keywords: [], now: day });
+  assert.equal(skipped, 1);
+  assert.deepEqual(files, [{ name: "prompt_20261008.txt", content: "line one\nline two\n\nsolo###neg\n" }]);
+}
+// JSON parts, global index, field mapping
+{
+  const items = [mk("a", 0), mk("b", 1), mk("c", 2)];
+  items[1].removed = ["Use the uploaded photo."];
+  const { files } = C.buildFiles("json", items, { perFile: 2, keywords: ["uploaded photo"], now: day });
+  assert.deepEqual(files.map(f => f.name), ["prompt_20261008_01.json", "prompt_20261008_02.json"]);
+  const p2 = JSON.parse(files[1].content);
+  assert.equal(p2.app, "prompt-collector");
+  assert.equal(p2.version, 1);
+  assert.equal(p2.part, 2);
+  assert.equal(p2.parts, 2);
+  assert.equal(p2.total, 3);
+  assert.deepEqual(p2.strip_keywords, ["uploaded photo"]);
+  assert.match(p2.exported_at, /^2026-10-08T14:02:00/);
+  assert.deepEqual(p2.prompts, [{ index: 3, text: "c", original: "raw 2", removed: [], edited: false, added_at: "t" }]);
+  assert.deepEqual(JSON.parse(files[0].content).prompts[1].removed, ["Use the uploaded photo."]);
+}
+
 console.log("core: all checks passed");
