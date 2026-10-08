@@ -178,7 +178,7 @@ dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
 </header>
 
 <div class="bar">
-  <div class="trigctl" id="trigCtl" hidden>
+  <div class="trigctl" id="trigCtl">
     <label class="field">Trigger <select id="trig"></select></label>
     <button class="btn icon" id="trigOpen" aria-label="Edit trigger presets" title="Edit trigger presets">&#9998;</button>
     <span class="sep"></span>
@@ -211,8 +211,8 @@ dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
       <div class="pos" id="pos"></div>
       <div class="nav"><button class="btn icon" id="prev" aria-label="Previous prompt">&larr;</button><button class="btn icon" id="next" aria-label="Next prompt">&rarr;</button></div>
     </div>
-    <div class="tabs"><button class="on" data-t="clean">Cleaned</button><button data-t="orig">Original</button><button data-t="final" id="tabFinal" hidden>Export preview</button></div>
-    <div class="trigline" id="trigline" hidden></div>
+    <div class="tabs"><button class="on" data-t="clean">Cleaned</button><button data-t="orig">Original</button><button data-t="final" id="tabFinal">Export preview</button></div>
+    <div class="trigline" id="trigline"></div>
     <div class="editor">
       <textarea id="ed" aria-label="Edit prompt"></textarea>
       <div class="orig" id="orig" hidden></div>
@@ -249,9 +249,10 @@ const KEY = "promptCollector.v1";
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const newId = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+const activeTrigger = () => C.findTrigger(state.triggers, state.activeTrigger);
 
 let state;
-let view = "clean";      // editor tab: "clean" | "orig"
+let view = "clean";      // editor tab: "clean" | "orig" | "final"
 let pending = null;      // raw text waiting on the duplicate warning
 let lastAdded = null;    // id of the slip to animate once
 let saveTimer = null;
@@ -371,13 +372,31 @@ function render() {
   $("prev").disabled = !it || state.selected === 0;
   $("next").disabled = !it || state.selected === n - 1;
   $("exportTxt").disabled = $("exportJson").disabled = $("clear").disabled = !n;
-  if ($("ed").value !== text) $("ed").value = text;
-  $("chars").textContent = it ? `${text.length} chars · ${text ? text.split("\n").length : 0} lines` : "";
+  const trig = activeTrigger();
+  const body = it ? C.collapseBlank(text) : "";
+  const prefix = body ? C.triggerPrefix(body, trig) : "";
+  const final = body ? C.applyTrigger(body, trig) : "";
+  const shown = view === "final" ? final : text;
+  if ($("ed").value !== shown) $("ed").value = shown;
+  $("ed").readOnly = view === "final";
+  $("chars").textContent = it ? `${final.length} chars on export` : "";
+  $("trigline").innerHTML = !trig ? "No trigger selected"
+    : !body ? "Empty prompt, skipped on export"
+    : prefix ? `Adds on export: <code>${esc(prefix)}</code>` : "Token already in prompt, nothing added";
   $("orig").innerHTML = it ? markRemoved(it) : "";
-  $("ed").hidden = view !== "clean";
+  $("ed").hidden = view === "orig";
   $("orig").hidden = view !== "orig";
   document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === view));
   renderKeywords();
+  renderTriggerSelect();
+}
+
+function renderTriggerSelect() {
+  const sel = $("trig");
+  if (document.activeElement === sel) return; // don't rebuild an open dropdown
+  sel.innerHTML = `<option value="">None</option>` +
+    state.triggers.map(t => `<option value="${esc(t.id)}">${esc(t.token.trim() || "(untitled)")}</option>`).join("");
+  sel.value = state.activeTrigger;
 }
 
 // ---- composer ----
@@ -393,7 +412,9 @@ function addPrompt(raw) {
   $("in").value = "";
   hideDupe();
   const r = removed.length;
-  $("receipt").innerHTML = `Last add: <b>${r ? `removed ${r} sentence${r > 1 ? "s" : ""}` : "nothing removed"}</b>`;
+  const prefix = C.triggerPrefix(text, activeTrigger());
+  $("receipt").innerHTML = `<span class="pill">${r ? `removed ${r} sentence${r > 1 ? "s" : ""}` : "nothing removed"}</span>` +
+    (prefix ? `<span class="pill trig">+ ${esc(prefix)}</span>` : "");
   changed();
   $("slips").querySelector(".on")?.scrollIntoView({ block: "nearest" });
 }
@@ -434,7 +455,7 @@ $("slips").addEventListener("click", e => { const b = e.target.closest(".slip");
 $("prev").onclick = () => select(state.selected - 1);
 $("next").onclick = () => select(state.selected + 1);
 document.addEventListener("keydown", e => {
-  if (e.target.closest("textarea, input, dialog") || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.target.closest("textarea, input, select, dialog") || e.altKey || e.ctrlKey || e.metaKey) return;
   if (e.key === "ArrowLeft") select(state.selected - 1);
   if (e.key === "ArrowRight") select(state.selected + 1);
 });
@@ -558,7 +579,7 @@ function download(files) {
   }, n * 150));
 }
 function exportAs(kind) {
-  const { files, skipped } = C.buildFiles(kind, state.items, { perFile: state.perFile, keywords: state.keywords });
+  const { files, skipped } = C.buildFiles(kind, state.items, { perFile: state.perFile, keywords: state.keywords, trigger: activeTrigger() });
   if (!files.length) { toast("Nothing to export: every prompt is empty."); return; }
   download(files);
   toast(`Exported ${files.length} ${kind.toUpperCase()} file${files.length > 1 ? "s" : ""}` +
@@ -566,6 +587,48 @@ function exportAs(kind) {
 }
 $("exportTxt").onclick = () => exportAs("txt");
 $("exportJson").onclick = () => exportAs("json");
+
+// ---- trigger presets ----
+$("trig").addEventListener("change", e => {
+  state.activeTrigger = e.target.value;
+  changed();
+  const t = activeTrigger();
+  toast(t ? `Trigger ${t.token.trim() || "(untitled)"} applies to all ${state.items.length} prompts on export` : "Trigger off");
+});
+function renderTriggerRows() {
+  $("trigList").innerHTML = state.triggers.map(t => `<div class="preset" data-id="${esc(t.id)}">
+    <div class="row"><label>Token<input data-f="token" value="${esc(t.token)}"></label>
+    <label>Description<input data-f="description" value="${esc(t.description)}"></label></div>
+    <label>Already described if prompt contains (comma separated)<input data-f="already" value="${esc(t.already.join(", "))}"></label>
+    <button class="btn danger" data-del="${esc(t.id)}">Delete preset</button></div>`).join("") || `<p>No presets yet.</p>`;
+}
+$("trigOpen").onclick = () => { renderTriggerRows(); $("trigDlg").showModal(); };
+$("trigClose").onclick = () => $("trigDlg").close();
+$("trigDlg").addEventListener("click", e => { if (e.target === $("trigDlg")) $("trigDlg").close(); }); // backdrop
+// Edits update state without rebuilding the rows, so the caret stays put while typing.
+$("trigList").addEventListener("input", e => {
+  const field = e.target.dataset.f, row = e.target.closest(".preset");
+  if (!field || !row) return;
+  const t = state.triggers.find(x => x.id === row.dataset.id);
+  if (!t) return;
+  t[field] = field === "already" ? C.parseAlready(e.target.value) : e.target.value;
+  changed();
+});
+$("trigList").addEventListener("click", e => {
+  const id = e.target.dataset.del;
+  if (id === undefined) return;
+  state.triggers = state.triggers.filter(t => t.id !== id);
+  if (state.activeTrigger === id) state.activeTrigger = "";
+  renderTriggerRows();
+  changed();
+});
+$("trigAdd").onclick = () => {
+  const t = { id: newId(), token: "", description: "", already: [] };
+  state.triggers.push(t);
+  renderTriggerRows();
+  changed();
+  $("trigList").querySelector(`[data-id="${t.id}"] input`).focus();
+};
 
 boot();
 </script>
