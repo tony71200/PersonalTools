@@ -82,6 +82,7 @@ Visual direction: editorial desk. Cool paper `#F3F3EF`, ink `#16171A`, one accen
 - Save the whole `state` 300 ms after any change, and immediately on `pagehide`.
 - On load: missing means defaults. If JSON parsing fails or `version` is unknown, copy the raw string to `promptCollector.v1.corrupt`, start with defaults, and show a toast "Saved data could not be read. A backup was kept in localStorage." Never silently overwrite unreadable data without that backup.
 - If `setItem` throws (quota), show a persistent toast "Autosave failed: storage is full. Export now." and keep working in memory.
+- If another tab saves, this tab adopts the newly saved state (storage event) so a stale tab never overwrites newer data.
 
 ## Export
 

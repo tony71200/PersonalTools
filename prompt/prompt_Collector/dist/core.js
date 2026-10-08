@@ -31,7 +31,7 @@
   }
 
   function findDuplicate(items, text) {
-    return items.findIndex(it => it.text === text);
+    return items.findIndex(it => collapseBlank(it.text) === text);
   }
 
   // Re-run clean on items the user has not edited by hand. Returns new objects; input untouched.

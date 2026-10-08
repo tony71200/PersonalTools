@@ -28,6 +28,7 @@ assert.equal(C.collapseBlank("a\n\n  b  \n"), "a\n  b");
 // --- findDuplicate ---
 assert.equal(C.findDuplicate([{ text: "x" }, { text: "y" }], "y"), 1);
 assert.equal(C.findDuplicate([], "y"), -1);
+assert.equal(C.findDuplicate([{ text: "a\n\nb" }], "a\nb"), 0);
 
 // --- reclean: only items not edited by hand, input not mutated ---
 {

@@ -241,6 +241,7 @@ function saveNow() {
     localStorage.setItem(KEY, JSON.stringify(state));
     $("saved").textContent = "Autosaved locally · last change " + new Date().toTimeString().slice(0, 5);
   } catch (e) {
+    $("saved").textContent = "Autosave failed: not saved";
     toast("Autosave failed: storage is full. Export now.", null, true);
   }
 }
@@ -250,6 +251,15 @@ function changed() {
   render();
 }
 addEventListener("pagehide", () => { if (saveTimer) saveNow(); });
+addEventListener("storage", e => {
+  if (e.key !== KEY || !e.newValue) return;
+  const p = C.parseState(e.newValue);
+  if (p.corrupt) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  state = p.state;
+  render();
+});
 
 // ---- render ----
 function markRemoved(it) {
@@ -400,7 +410,12 @@ $("del").onclick = () => {
   if (!it) return;
   state.items.splice(i, 1);
   changed();
-  toast(`Deleted #${i + 1}`, { label: "Undo", run: () => { state.items.splice(i, 0, it); state.selected = i; changed(); } });
+  toast(`Deleted #${i + 1}`, { label: "Undo", run: () => {
+    state.items.splice(Math.min(i, state.items.length), 0, it);
+    state.items = C.reclean(state.items, state.keywords);
+    state.selected = state.items.findIndex(x => x.id === it.id);
+    changed();
+  } });
 };
 
 // ---- drag to reorder ----
