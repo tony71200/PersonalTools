@@ -45,7 +45,7 @@
   }
 
   // Trigger presets are applied at export time only; prompts never store them.
-  const cleanToken = token => String(token || "").trim().replace(/\.+$/, "");
+  const cleanToken = token => String(token || "").replace(/\s+/g, " ").trim().replace(/\.+$/, "");
 
   function triggerPrefix(text, trigger) {
     const token = trigger ? cleanToken(trigger.token) : "";
@@ -53,7 +53,7 @@
     const lower = String(text).toLowerCase();
     if (lower.includes(token.toLowerCase())) return "";
     const head = token + ".";
-    let desc = String(trigger.description || "").trim();
+    let desc = String(trigger.description || "").replace(/\s+/g, " ").trim();
     if (!desc || (trigger.already || []).some(p => p && lower.includes(String(p).toLowerCase()))) return head;
     if (!/[.!?]$/.test(desc)) desc += ".";
     return head + " " + desc;
@@ -149,7 +149,7 @@
             parts: chunks.length,
             total: prompts.length,
             strip_keywords: keywords,
-            trigger: trigger ? { token: trigger.token, description: trigger.description, already: trigger.already } : null,
+            trigger: trigger && triggerPrefix("", trigger) ? { token: cleanToken(trigger.token), description: trigger.description, already: trigger.already } : null,
             prompts: group.map((p, j) => ({
               index: part * perFile + j + 1,
               text: p.text,

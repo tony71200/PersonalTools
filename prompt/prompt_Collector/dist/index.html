@@ -27,7 +27,7 @@
   --sh-2:0 2px 4px rgb(var(--shadow)/.06),0 10px 24px -6px rgb(var(--shadow)/.16);
   --sh-3:0 4px 10px rgb(var(--shadow)/.08),0 20px 40px -12px rgb(var(--shadow)/.28);
   --inset:inset 0 2px 4px rgb(var(--shadow)/.06);
-  --ring:0 0 0 4px color-mix(in srgb,var(--primary) 20%,transparent);
+  --ring:0 0 0 2px var(--card),0 0 0 5px color-mix(in srgb,var(--primary) 70%,transparent);
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -385,6 +385,8 @@ function render() {
   $("ed").readOnly = view === "final";
   $("chars").textContent = it ? `${final.length} chars on export` : "";
   $("trigline").innerHTML = !trig ? "No trigger selected"
+    : !C.triggerPrefix("", trig) ? "Trigger has no token, nothing added"
+    : !it ? ""
     : !body ? "Empty prompt, skipped on export"
     : prefix ? `Adds on export: <code>${esc(prefix)}</code>` : "Token already in prompt, nothing added";
   $("orig").innerHTML = it ? markRemoved(it) : "";
@@ -596,7 +598,9 @@ $("trig").addEventListener("change", e => {
   state.activeTrigger = e.target.value;
   changed();
   const t = activeTrigger();
-  toast(t ? `Trigger ${t.token.trim() || "(untitled)"} applies to all ${state.items.length} prompts on export` : "Trigger off");
+  toast(!t ? "Trigger off"
+    : !C.triggerPrefix("", t) ? "Trigger (untitled) has no token, nothing will be added"
+    : `Trigger ${t.token.trim()} applies to all ${state.items.length} prompts on export`);
 });
 function renderTriggerRows() {
   $("trigList").innerHTML = state.triggers.map(t => `<div class="preset" data-id="${esc(t.id)}">

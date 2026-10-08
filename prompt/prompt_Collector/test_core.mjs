@@ -72,6 +72,8 @@ assert.equal(C.triggerPrefix("Close-up portrait, rim light.", IVAN), "Ivan_Ryo. 
 assert.equal(C.triggerPrefix("Portrait.", { ...IVAN, description: "A 25yo Asian young man" }), "Ivan_Ryo. A 25yo Asian young man.");
 assert.equal(C.triggerPrefix("Portrait.", { ...IVAN, token: "Ivan_Ryo." }), "Ivan_Ryo. A 25yo Asian young man.");
 assert.equal(C.triggerPrefix("Portrait.", { ...IVAN, description: "  " }), "Ivan_Ryo.");
+assert.equal(C.triggerPrefix("Portrait.", { ...IVAN, description: "A 25yo\n\nAsian man" }), "Ivan_Ryo. A 25yo Asian man.");
+assert.equal(C.triggerPrefix("Portrait.", { ...IVAN, token: "Ivan\n\nRyo" }), "Ivan Ryo. A 25yo Asian young man.");
 assert.equal(C.triggerPrefix("Portrait of an ASIAN MAN.", { ...IVAN, already: ["Asian Man"] }), "Ivan_Ryo.");
 assert.equal(C.applyTrigger("Portrait.", IVAN), "Ivan_Ryo. A 25yo Asian young man. Portrait.");
 assert.equal(C.applyTrigger("Portrait.", null), "Portrait.");
@@ -166,6 +168,7 @@ assert.deepEqual(C.buildFiles("txt", [], { perFile: 5, keywords: [] }).files, []
   assert.equal(json.prompts[0].body, "Close-up portrait.");
   assert.equal(json.prompts[1].index, 2);
   assert.equal(json.prompts[1].body, "An Asian young man\nin rain.");
+  assert.equal(JSON.parse(C.buildFiles("json", [mk("a", 0)], { perFile: 5, keywords: [], trigger: { ...IV, token: " " }, now: day }).files[0].content).trigger, null);
 }
 
 console.log("core: all checks passed");
