@@ -462,6 +462,29 @@ $("clear").onclick = () => {
   changed();
 };
 
+// ---- export ----
+// One <a download> per file, 150 ms apart; Chrome/Edge asks once to allow multiple downloads.
+function download(files) {
+  files.forEach((f, n) => setTimeout(() => {
+    const type = f.name.endsWith(".json") ? "application/json" : "text/plain;charset=utf-8";
+    const url = URL.createObjectURL(new Blob([f.content], { type }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: f.name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, n * 150));
+}
+function exportAs(kind) {
+  const { files, skipped } = C.buildFiles(kind, state.items, { perFile: state.perFile, keywords: state.keywords });
+  if (!files.length) { toast("Nothing to export: every prompt is empty."); return; }
+  download(files);
+  toast(`Exported ${files.length} ${kind.toUpperCase()} file${files.length > 1 ? "s" : ""}` +
+    (skipped ? ` · skipped ${skipped} empty prompt${skipped > 1 ? "s" : ""}` : ""));
+}
+$("exportTxt").onclick = () => exportAs("txt");
+$("exportJson").onclick = () => exportAs("json");
+
 boot();
 </script>
 </body>

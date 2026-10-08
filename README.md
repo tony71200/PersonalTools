@@ -20,6 +20,7 @@ PersonalTools/
 │   ├── manager_folder2.py — Tổ chức thư mục ảnh theo cấu hình mạng xã hội.
 │   └── softChoice.py — Lọc ảnh có khuôn mặt và gom nhóm bằng CLIP + InsightFace.
 ├── prompt/ — Xử lý và chuẩn hoá prompt.
+│   ├── prompt_Collector/ — Web UI gom prompt: double-click dist/index.html, lọc câu thừa, export TXT (Text_Splitter) / JSON.
 │   ├── groupPrompt_v2.py — Gom nhóm prompt theo độ tương đồng và tóm tắt từ khóa.
 │   ├── replace_sensitive_word.py — Thay thế từ ngữ nhạy cảm trong prompt.
 │   ├── rewritePrompt_v2.py — Viết lại prompt với tham số tùy chỉnh.
