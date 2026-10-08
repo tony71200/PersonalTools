@@ -394,6 +394,74 @@ function boot() {
   render();
   $("in").focus();
 }
+// ---- delete with undo ----
+$("del").onclick = () => {
+  const i = state.selected, it = state.items[i];
+  if (!it) return;
+  state.items.splice(i, 1);
+  changed();
+  toast(`Deleted #${i + 1}`, { label: "Undo", run: () => { state.items.splice(i, 0, it); state.selected = i; changed(); } });
+};
+
+// ---- drag to reorder ----
+let dragFrom = null;
+$("slips").addEventListener("dragstart", e => {
+  const b = e.target.closest(".slip");
+  if (!b) return;
+  dragFrom = +b.dataset.i;
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", "");
+  b.classList.add("dragging");
+});
+$("slips").addEventListener("dragover", e => {
+  const b = e.target.closest(".slip");
+  if (dragFrom === null || !b) return;
+  e.preventDefault();
+  document.querySelectorAll(".slip.drop").forEach(x => { if (x !== b) x.classList.remove("drop"); });
+  b.classList.add("drop");
+});
+$("slips").addEventListener("drop", e => {
+  const b = e.target.closest(".slip");
+  if (dragFrom === null || !b) return;
+  e.preventDefault();
+  const selectedItem = state.items[state.selected];
+  state.items = C.move(state.items, dragFrom, +b.dataset.i);
+  state.selected = state.items.indexOf(selectedItem);
+  dragFrom = null;
+  changed();
+});
+$("slips").addEventListener("dragend", () => { dragFrom = null; render(); });
+
+// ---- strip keywords dialog ----
+function setKeywords(list) {
+  state.keywords = list;
+  state.items = C.reclean(state.items, list);
+  changed();
+}
+$("kwOpen").onclick = () => { renderKeywords(); $("kwDlg").showModal(); $("kwIn").focus(); };
+$("kwClose").onclick = () => $("kwDlg").close();
+$("kwDlg").addEventListener("click", e => { if (e.target === $("kwDlg")) $("kwDlg").close(); }); // backdrop
+$("kws").addEventListener("click", e => {
+  const k = e.target.dataset.k;
+  if (k !== undefined) setKeywords(state.keywords.filter((_, i) => i !== +k));
+});
+$("kwAdd").onclick = () => {
+  const v = $("kwIn").value.trim().toLowerCase();
+  $("kwIn").value = "";
+  if (v && !state.keywords.includes(v)) setKeywords([...state.keywords, v]);
+  $("kwIn").focus();
+};
+$("kwIn").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("kwAdd").click(); } });
+
+// ---- clear list ----
+$("clear").onclick = () => {
+  const n = state.items.length;
+  if (!n || !confirm(`Clear all ${n} prompts? Export first if you need them.`)) return;
+  state.items = [];
+  state.selected = 0;
+  changed();
+};
+
 boot();
 </script>
 </body>
