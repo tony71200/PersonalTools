@@ -147,8 +147,25 @@ assert.deepEqual(C.buildFiles("txt", [], { perFile: 5, keywords: [] }).files, []
   assert.equal(p2.total, 3);
   assert.deepEqual(p2.strip_keywords, ["uploaded photo"]);
   assert.match(p2.exported_at, /^2026-10-08T14:02:00/);
-  assert.deepEqual(p2.prompts, [{ index: 3, text: "c", original: "raw 2", removed: [], edited: false, added_at: "t" }]);
+  assert.equal(p2.trigger, null);
+  assert.deepEqual(p2.prompts, [{ index: 3, text: "c", body: "c", original: "raw 2", removed: [], edited: false, added_at: "t" }]);
   assert.deepEqual(JSON.parse(files[0].content).prompts[1].removed, ["Use the uploaded photo."]);
+}
+
+// --- buildFiles with a trigger ---
+{
+  const IV = { id: "ivan", token: "Ivan_Ryo", description: "A 25yo Asian young man.", already: ["asian young man"] };
+  const items = [mk("Close-up portrait.", 0), mk("   ", 1), mk("An Asian young man\n\n\nin rain.", 2)];
+  const txt = C.buildFiles("txt", items, { perFile: 50, keywords: [], trigger: IV, now: day });
+  assert.equal(txt.skipped, 1); // an empty body is never exported as a lone trigger
+  assert.equal(txt.files[0].content, "Ivan_Ryo. A 25yo Asian young man. Close-up portrait.\n\nIvan_Ryo. An Asian young man\nin rain.\n");
+  assert.equal(txt.files[0].content.split("\n\n").filter(b => b.trim()).length, 2); // Text_Splitter view
+  const json = JSON.parse(C.buildFiles("json", items, { perFile: 50, keywords: [], trigger: IV, now: day }).files[0].content);
+  assert.deepEqual(json.trigger, { token: "Ivan_Ryo", description: "A 25yo Asian young man.", already: ["asian young man"] });
+  assert.equal(json.prompts[0].text, "Ivan_Ryo. A 25yo Asian young man. Close-up portrait.");
+  assert.equal(json.prompts[0].body, "Close-up portrait.");
+  assert.equal(json.prompts[1].index, 2);
+  assert.equal(json.prompts[1].body, "An Asian young man\nin rain.");
 }
 
 console.log("core: all checks passed");

@@ -128,11 +128,12 @@
   }
 
   // kind: "txt" | "json". Text is collapsed again (hand edits may contain blank lines); empty prompts are skipped.
-  function buildFiles(kind, items, { perFile, keywords, now = new Date() }) {
+  // The active trigger is prepended here, never stored in the item.
+  function buildFiles(kind, items, { perFile, keywords, trigger = null, now = new Date() }) {
     const prompts = [];
     for (const it of items) {
-      const text = collapseBlank(it.text);
-      if (text) prompts.push({ ...it, text });
+      const body = collapseBlank(it.text);
+      if (body) prompts.push({ ...it, body, text: applyTrigger(body, trigger) });
     }
     const chunks = chunk(prompts, perFile);
     const names = fileNames(now, chunks.length, kind);
@@ -148,9 +149,11 @@
             parts: chunks.length,
             total: prompts.length,
             strip_keywords: keywords,
+            trigger: trigger ? { token: trigger.token, description: trigger.description, already: trigger.already } : null,
             prompts: group.map((p, j) => ({
               index: part * perFile + j + 1,
               text: p.text,
+              body: p.body,
               original: p.raw,
               removed: p.removed,
               edited: p.edited,
