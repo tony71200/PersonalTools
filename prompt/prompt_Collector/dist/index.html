@@ -227,6 +227,7 @@ function load() {
     if (kept) toast("Saved data could not be read. A backup was kept in localStorage.", null, true);
     else {
       saveBlocked = true;
+      $("saved").textContent = "Autosave paused: nothing is being saved";
       toast("Saved data could not be read or backed up. Autosave is paused.",
         { label: "Discard it", run: () => { saveBlocked = false; saveNow(); } }, true);
     }
