@@ -200,6 +200,7 @@ let pending = null;      // raw text waiting on the duplicate warning
 let lastAdded = null;    // id of the slip to animate once
 let saveTimer = null;
 let toastTimer = null;
+let saveBlocked = false; // true while unreadable data could not be backed up
 
 // ---- toast ----
 function toast(msg, action, sticky) {
@@ -221,13 +222,20 @@ function load() {
   const parsed = C.parseState(raw);
   state = parsed.state;
   if (parsed.corrupt) {
-    try { localStorage.setItem(KEY + ".corrupt", raw); } catch (e) { /* nothing more we can do */ }
-    toast("Saved data could not be read. A backup was kept in localStorage.", null, true);
+    let kept = true;
+    try { localStorage.setItem(KEY + ".corrupt", raw); } catch (e) { kept = false; }
+    if (kept) toast("Saved data could not be read. A backup was kept in localStorage.", null, true);
+    else {
+      saveBlocked = true;
+      toast("Saved data could not be read or backed up. Autosave is paused.",
+        { label: "Discard it", run: () => { saveBlocked = false; saveNow(); } }, true);
+    }
   }
 }
 function saveNow() {
   clearTimeout(saveTimer);
   saveTimer = null;
+  if (saveBlocked) return;
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
     $("saved").textContent = "Autosaved locally · last change " + new Date().toTimeString().slice(0, 5);
