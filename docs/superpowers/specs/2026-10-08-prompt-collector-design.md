@@ -119,7 +119,7 @@ JSON, one file per chunk, UTF-8, 2-space indent:
 }
 ```
 
-`index` is the 1-based position in the whole list, not in the chunk. `total` counts exported (non-empty) prompts.
+`index` is the 1-based position among all exported (non-empty) prompts across every part, not the position within the chunk. `total` counts exported prompts.
 
 ## Out of scope
 
