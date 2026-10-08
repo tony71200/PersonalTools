@@ -201,7 +201,7 @@ dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
       <div class="dupe" id="dupe" role="alert">Same as <b id="dupeNo"></b> after cleanup.<span class="spacer"></span>
         <button class="btn" id="skip">Skip</button><button class="btn primary" id="addAnyway">Add anyway</button></div>
     </div>
-    <div class="listhead"><h2>Collected</h2><span>Drag to reorder · dashed line marks a file break</span></div>
+    <div class="listhead"><h2>Collected</h2><span>Newest first · export runs #1 → #n</span></div>
     <div class="slips" id="slips"></div>
     <p class="empty" id="empty">Paste a prompt above and press Enter.</p>
   </section>
@@ -352,16 +352,20 @@ function render() {
   if (document.activeElement !== $("per")) $("per").value = per;
 
   const firstSeen = new Map();
+  items.forEach((it, i) => { if (!firstSeen.has(it.text)) firstSeen.set(it.text, i + 1); });
   const width = files > 99 ? 3 : 2;
-  $("slips").innerHTML = items.map((it, i) => {
-    const dupOf = firstSeen.get(it.text) || 0;
-    if (!dupOf) firstSeen.set(it.text, i + 1);
+  const num = k => String(k).padStart(width, "0");
+  let html = "";
+  for (let i = n - 1; i >= 0; i--) { // newest first; the number stays the export position
+    const it = items[i];
+    const dupOf = firstSeen.get(it.text) !== i + 1 ? firstSeen.get(it.text) : 0;
     const mark = dupOf ? `= #${dupOf}` : it.edited ? "edited" : it.removed.length ? "cleaned" : "";
-    const cut = i && i % per === 0 ? `<div class="cut">file ${String(i / per + 1).padStart(width, "0")}</div>` : "";
     const cls = "slip" + (i === state.selected ? " on" : "") + (dupOf ? " dup" : "") + (it.id === lastAdded ? " new" : "");
-    return cut + `<button class="${cls}" data-i="${i}" draggable="true">` +
+    html += `<button class="${cls}" data-i="${i}" draggable="true">` +
       `<span class="no">${i + 1}</span><span class="meta">${mark}</span><span class="pv">${esc(it.text)}</span></button>`;
-  }).join("");
+    if (i && i % per === 0) html += `<div class="cut">&#9650; file ${num(i / per + 1)} · file ${num(i / per)} &#9660;</div>`;
+  }
+  $("slips").innerHTML = html;
   lastAdded = null;
   $("empty").hidden = n > 0;
 
@@ -415,8 +419,7 @@ function addPrompt(raw) {
   const prefix = C.triggerPrefix(text, activeTrigger());
   $("receipt").innerHTML = `<span class="pill">${r ? `removed ${r} sentence${r > 1 ? "s" : ""}` : "nothing removed"}</span>` +
     (prefix ? `<span class="pill trig">+ ${esc(prefix)}</span>` : "");
-  changed();
-  $("slips").querySelector(".on")?.scrollIntoView({ block: "nearest" });
+  changed(); // no scrollIntoView: the new slip renders first, right under the composer, and focus stays in it
 }
 
 $("in").addEventListener("keydown", e => {
