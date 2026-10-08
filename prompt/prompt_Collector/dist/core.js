@@ -6,6 +6,11 @@
   const DEFAULT_KEYWORDS = ["uploaded photo", "facial structure", "exact body proportions", "reference image"];
   const DEFAULT_PER_FILE = 50;
   const SENTENCE_SPLIT = /(?<=[.!?])\s+/;
+  const DEFAULT_TRIGGERS = [{
+    id: "ivan", token: "Ivan_Ryo", description: "A 25yo Asian young man.",
+    already: ["asian young man", "young asian man", "asian man"],
+  }];
+  const THEMES = ["sunny", "sky"];
 
   // CRLF -> LF, strip trailing spaces per line, collapse any run of blank lines into one "\n", trim.
   // ComfyUI Text_Splitter cuts files on the exact string "\n\n", so no prompt may keep one inside.
@@ -39,8 +44,39 @@
     return items.map(it => it.edited ? it : { ...it, ...clean(it.raw, keywords) });
   }
 
+  // Trigger presets are applied at export time only; prompts never store them.
+  const cleanToken = token => String(token || "").trim().replace(/\.+$/, "");
+
+  function triggerPrefix(text, trigger) {
+    const token = trigger ? cleanToken(trigger.token) : "";
+    if (!token) return "";
+    const lower = String(text).toLowerCase();
+    if (lower.includes(token.toLowerCase())) return "";
+    const head = token + ".";
+    let desc = String(trigger.description || "").trim();
+    if (!desc || (trigger.already || []).some(p => p && lower.includes(String(p).toLowerCase()))) return head;
+    if (!/[.!?]$/.test(desc)) desc += ".";
+    return head + " " + desc;
+  }
+
+  function applyTrigger(text, trigger) {
+    const prefix = triggerPrefix(text, trigger);
+    return prefix ? prefix + " " + text : text;
+  }
+
+  function parseAlready(str) {
+    return String(str).split(",").map(p => p.trim().toLowerCase()).filter(Boolean);
+  }
+
+  function findTrigger(triggers, id) {
+    return (id && triggers.find(t => t.id === id)) || null;
+  }
+
   function defaultState() {
-    return { version: 1, items: [], keywords: DEFAULT_KEYWORDS.slice(), perFile: DEFAULT_PER_FILE, selected: 0 };
+    return {
+      version: 1, items: [], keywords: DEFAULT_KEYWORDS.slice(), perFile: DEFAULT_PER_FILE, selected: 0,
+      triggers: DEFAULT_TRIGGERS.map(t => ({ ...t, already: t.already.slice() })), activeTrigger: "", theme: "sunny",
+    };
   }
 
   // str: the localStorage value or null. corrupt=true means str existed but is unusable (caller backs it up).
@@ -53,6 +89,9 @@
     }
     const state = { ...defaultState(), ...s };
     if (!Number.isInteger(state.perFile) || state.perFile < 1) state.perFile = DEFAULT_PER_FILE;
+    if (!Array.isArray(state.triggers)) state.triggers = defaultState().triggers;
+    if (!findTrigger(state.triggers, state.activeTrigger)) state.activeTrigger = "";
+    if (!THEMES.includes(state.theme)) state.theme = "sunny";
     return { state, corrupt: false };
   }
 
@@ -123,7 +162,8 @@
   }
 
   const api = {
-    DEFAULT_KEYWORDS, DEFAULT_PER_FILE, collapseBlank, clean, findDuplicate, reclean, defaultState, parseState,
+    DEFAULT_KEYWORDS, DEFAULT_PER_FILE, DEFAULT_TRIGGERS, collapseBlank, clean, findDuplicate, reclean,
+    triggerPrefix, applyTrigger, parseAlready, findTrigger, defaultState, parseState,
     chunk, move, stamp, isoLocal, fileNames, buildFiles,
   };
   root.PromptCore = api;

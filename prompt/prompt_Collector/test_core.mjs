@@ -46,13 +46,53 @@ assert.equal(C.findDuplicate([{ text: "a\n\nb" }], "a\nb"), 0);
 // --- defaults and parseState ---
 assert.deepEqual(C.DEFAULT_KEYWORDS, ["uploaded photo", "facial structure", "exact body proportions", "reference image"]);
 assert.equal(C.parseState(null).corrupt, false);
-assert.deepEqual(C.parseState(null).state, { version: 1, items: [], keywords: C.DEFAULT_KEYWORDS, perFile: 50, selected: 0 });
+assert.deepEqual(C.parseState(null).state, {
+  version: 1, items: [], keywords: C.DEFAULT_KEYWORDS, perFile: 50, selected: 0,
+  triggers: C.DEFAULT_TRIGGERS, activeTrigger: "", theme: "sunny",
+});
 assert.equal(C.parseState("{not json").corrupt, true);
 assert.equal(C.parseState(JSON.stringify({ version: 2, items: [], keywords: [] })).corrupt, true);
 assert.equal(C.parseState(JSON.stringify({ version: 1, items: [], keywords: [], perFile: 0 })).state.perFile, 50);
 {
   const s = { version: 1, items: [{ id: "a", raw: "r", text: "t", removed: [], edited: false, addedAt: "x" }], keywords: ["k"], perFile: 7, selected: 0 };
-  assert.deepEqual(C.parseState(JSON.stringify(s)), { state: s, corrupt: false });
+  assert.deepEqual(C.parseState(JSON.stringify(s)), {
+    state: { ...s, triggers: C.DEFAULT_TRIGGERS, activeTrigger: "", theme: "sunny" }, corrupt: false,
+  });
+}
+
+// --- triggers ---
+assert.deepEqual(C.DEFAULT_TRIGGERS, [{ id: "ivan", token: "Ivan_Ryo", description: "A 25yo Asian young man.", already: ["asian young man", "young asian man", "asian man"] }]);
+assert.notEqual(C.defaultState().triggers[0], C.DEFAULT_TRIGGERS[0]); // defaults are copied, not shared
+const IVAN = { id: "ivan", token: "Ivan_Ryo", description: "A 25yo Asian young man.", already: ["asian young man", "young asian man"] };
+assert.equal(C.triggerPrefix("anything", null), "");
+assert.equal(C.triggerPrefix("anything", { ...IVAN, token: "  " }), "");
+assert.equal(C.triggerPrefix("IVAN_RYO walks in rain.", IVAN), "");                       // token already there
+assert.equal(C.triggerPrefix("Night market, an Asian Young Man in denim.", IVAN), "Ivan_Ryo."); // already described
+assert.equal(C.triggerPrefix("Close-up portrait, rim light.", IVAN), "Ivan_Ryo. A 25yo Asian young man.");
+assert.equal(C.triggerPrefix("Portrait.", { ...IVAN, description: "A 25yo Asian young man" }), "Ivan_Ryo. A 25yo Asian young man.");
+assert.equal(C.triggerPrefix("Portrait.", { ...IVAN, token: "Ivan_Ryo." }), "Ivan_Ryo. A 25yo Asian young man.");
+assert.equal(C.triggerPrefix("Portrait.", { ...IVAN, description: "  " }), "Ivan_Ryo.");
+assert.equal(C.triggerPrefix("Portrait of an ASIAN MAN.", { ...IVAN, already: ["Asian Man"] }), "Ivan_Ryo.");
+assert.equal(C.applyTrigger("Portrait.", IVAN), "Ivan_Ryo. A 25yo Asian young man. Portrait.");
+assert.equal(C.applyTrigger("Portrait.", null), "Portrait.");
+assert.deepEqual(C.parseAlready(" Asian Man, ,young ASIAN man ,"), ["asian man", "young asian man"]);
+assert.equal(C.findTrigger([IVAN], "ivan"), IVAN);
+assert.equal(C.findTrigger([IVAN], "nope"), null);
+assert.equal(C.findTrigger([IVAN], ""), null);
+// parseState fills and validates the v2 fields
+{
+  const v1 = { version: 1, items: [], keywords: ["k"], perFile: 7, selected: 0 };
+  const s = C.parseState(JSON.stringify(v1)).state;
+  assert.deepEqual(s.triggers, C.DEFAULT_TRIGGERS);
+  assert.equal(s.activeTrigger, "");
+  assert.equal(s.theme, "sunny");
+  const bad = C.parseState(JSON.stringify({ ...v1, triggers: "x", activeTrigger: "ghost", theme: "neon" })).state;
+  assert.deepEqual(bad.triggers, C.DEFAULT_TRIGGERS);
+  assert.equal(bad.activeTrigger, "");
+  assert.equal(bad.theme, "sunny");
+  const ok = C.parseState(JSON.stringify({ ...v1, triggers: [IVAN], activeTrigger: "ivan", theme: "sky" })).state;
+  assert.equal(ok.activeTrigger, "ivan");
+  assert.equal(ok.theme, "sky");
 }
 
 // --- chunk / move ---
