@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prompt Collector</title>
+<style>
+:root{
+  --paper:#F3F3EF; --sheet:#FBFBF8; --ink:#16171A; --ink-2:#45464B; --muted:#76777C;
+  --rule:#D8D8D1; --rule-2:#E6E6E0; --accent:#C8361D; --accent-wash:#F6E3DE;
+  --serif:"Sitka Heading","Sitka Text",Cambria,Georgia,serif;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,monospace;
+  --r:3px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--sans)}
+button,input,textarea{font:inherit;color:inherit}
+
+/* masthead */
+.mast{display:grid;grid-template-columns:1fr auto;align-items:end;gap:24px;
+  padding:28px 40px 18px;border-bottom:2px solid var(--ink)}
+.mast h1{font:600 34px/1 var(--serif);letter-spacing:-.01em;margin:0}
+.mast .sub{color:var(--muted);font-size:12.5px;margin-top:8px}
+.tally{display:flex;align-items:end;gap:28px}
+.stat{text-align:right}
+.stat b{display:block;font:600 40px/1 var(--serif);font-variant-numeric:lining-nums tabular-nums}
+.stat span{font-size:11.5px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+
+/* toolbar */
+.bar{display:flex;align-items:center;gap:10px;padding:12px 40px;border-bottom:1px solid var(--rule);background:var(--sheet)}
+.bar label{font-size:12.5px;color:var(--ink-2);display:flex;align-items:center;gap:8px}
+.bar input[type=number]{width:64px;padding:5px 8px;border:1px solid var(--rule);border-radius:var(--r);background:#fff;font-family:var(--mono);font-size:13px}
+.bar .hint{font-size:12px;color:var(--muted)}
+.spacer{flex:1}
+.btn{border:1px solid var(--ink);background:transparent;border-radius:var(--r);padding:7px 14px;font-weight:600;font-size:13px;cursor:pointer;
+  transition:background .15s,color .15s,transform .16s}
+.btn:active{transform:scale(.97)}
+.btn:hover{background:var(--ink);color:var(--paper)}
+.btn.primary{background:var(--ink);color:var(--paper)}
+.btn.primary:hover{background:#000}
+.btn.ghost{border-color:transparent;color:var(--accent);font-weight:600}
+.btn.ghost:hover{background:var(--accent-wash);color:var(--accent)}
+
+/* layout */
+.desk{display:grid;grid-template-columns:minmax(0,1fr) 460px;min-height:calc(100vh - 150px)}
+.left{padding:24px 40px 40px;border-right:1px solid var(--rule)}
+.right{padding:24px 32px 40px;background:var(--sheet);position:sticky;top:0;align-self:start;height:calc(100vh - 0px);overflow:auto}
+
+.fieldlabel{display:flex;justify-content:space-between;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2);margin-bottom:6px}
+.fieldlabel em{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400;color:var(--muted)}
+kbd{font:11px var(--mono);border:1px solid var(--rule);border-bottom-width:2px;border-radius:3px;padding:0 4px;background:#fff}
+
+.composer textarea{width:100%;min-height:96px;resize:vertical;padding:12px 14px;border:1px solid var(--ink);border-radius:var(--r);
+  background:#fff;font:13px/1.55 var(--mono);outline:none}
+.composer textarea:focus{box-shadow:0 0 0 3px rgba(22,23,26,.12)}
+.receipt{font-size:12px;color:var(--muted);margin-top:6px;min-height:18px}
+.receipt b{color:var(--ink-2);font-weight:600}
+
+.dupe{display:none;margin-top:8px;padding:10px 12px;border:1px solid var(--accent);background:var(--accent-wash);border-radius:var(--r);
+  font-size:13px;align-items:center;gap:10px}
+.dupe.show{display:flex;animation:rise .18s ease-out}
+.dupe .spacer{flex:1}
+
+/* slip list */
+.listhead{display:flex;align-items:baseline;justify-content:space-between;margin:28px 0 10px;border-bottom:1px solid var(--rule);padding-bottom:6px}
+.listhead h2{font:600 18px/1.2 var(--serif);margin:0}
+.listhead span{font-size:12px;color:var(--muted)}
+.slips{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.slip{position:relative;text-align:left;border:1px solid var(--rule);background:var(--sheet);border-radius:var(--r);padding:10px 11px 11px;
+  cursor:pointer;min-height:96px;display:flex;flex-direction:column;gap:6px;
+  transition:border-color .15s,transform .15s,background .12s,color .12s;animation:rise .2s ease-out both}
+.slip:hover{border-color:var(--ink);transform:translateY(-1px)}
+.slip .no{font:600 22px/1 var(--serif);font-variant-numeric:tabular-nums}
+.slip .pv{font:11px/1.45 var(--mono);color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.slip .meta{position:absolute;top:10px;right:10px;font-size:10.5px;color:var(--muted);font-family:var(--mono)}
+.slip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.slip.on .pv,.slip.on .meta{color:#B9BAB5}
+.slip.dup .meta{color:var(--accent)}
+.slip .grip{position:absolute;bottom:8px;right:9px;opacity:0;font-size:12px;color:var(--muted);cursor:grab;transition:opacity .15s}
+.slip:hover .grip{opacity:1}
+.cut{grid-column:1/-1;display:flex;align-items:center;gap:10px;font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin:4px 0}
+.cut::before,.cut::after{content:"";flex:1;border-top:1px dashed var(--rule)}
+
+/* editor */
+.edhead{display:flex;align-items:baseline;justify-content:space-between;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:14px}
+.pos{font:600 30px/1 var(--serif);font-variant-numeric:tabular-nums}
+.pos small{font-size:16px;color:var(--muted);font-weight:400}
+.nav{display:flex;gap:6px}
+.nav button{width:32px;height:32px;border:1px solid var(--rule);background:#fff;border-radius:var(--r);cursor:pointer}
+.nav button:hover{border-color:var(--ink)}
+.tabs{display:flex;gap:18px;font-size:13px;margin-bottom:10px}
+.tabs button{border:0;background:none;padding:0 0 4px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent}
+.tabs button.on{color:var(--ink);border-bottom-color:var(--ink);font-weight:600}
+.editor textarea{width:100%;min-height:420px;resize:vertical;padding:12px 14px;border:1px solid var(--rule);border-radius:var(--r);
+  background:#fff;font:13px/1.6 var(--mono);outline:none}
+.editor textarea:focus{border-color:var(--ink)}
+.orig{display:none;padding:12px 14px;border:1px dashed var(--rule);border-radius:var(--r);font:13px/1.6 var(--mono);white-space:pre-wrap;color:var(--ink-2);background:#fff}
+.orig del{color:var(--accent);text-decoration-thickness:1px;background:var(--accent-wash)}
+.edfoot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12px;color:var(--muted)}
+
+/* strip list */
+.icon{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:1px solid var(--rule);background:#fff;border-radius:var(--r);
+  cursor:pointer;color:var(--ink-2);font:600 12px var(--mono);transition:border-color .15s,color .15s}
+.icon:hover{border-color:var(--ink);color:var(--ink)}
+.strip{width:420px;max-width:calc(100vw - 32px);margin:84px 40px auto auto;padding:18px 20px 20px;border:1px solid var(--ink);
+  border-radius:var(--r);background:var(--sheet);color:var(--ink)}
+.strip[open]{animation:rise .16s ease-out}
+.strip::backdrop{background:rgba(22,23,26,.18)}
+.dlghead{display:flex;justify-content:space-between;align-items:center}
+.dlghead button{border:0;background:none;font-size:20px;cursor:pointer;color:var(--muted)}
+.dlghead button:hover{color:var(--ink)}
+.strip h3{font:600 16px/1.2 var(--serif);margin:0 0 4px}
+.strip p{margin:0 0 12px;font-size:12.5px;color:var(--muted)}
+.kw{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--rule-2);font:12.5px var(--mono)}
+.kw button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1}
+.kw button:hover{color:var(--accent)}
+.kw .hits{font-family:var(--sans);font-size:11px;color:var(--muted);margin-left:auto;margin-right:12px}
+.addkw{display:flex;gap:8px;margin-top:10px}
+.addkw input{flex:1;padding:7px 10px;border:1px solid var(--rule);border-radius:var(--r);background:#fff;font:12.5px var(--mono)}
+
+.toast{position:fixed;left:40px;bottom:24px;background:var(--ink);color:var(--paper);padding:10px 14px;border-radius:var(--r);font-size:13px;
+  display:flex;gap:14px;align-items:center;transform:translateY(80px);opacity:0;transition:transform .2s,opacity .2s}
+.toast.show{transform:none;opacity:1}
+.toast button{background:none;border:0;color:#FFB4A6;font-weight:600;cursor:pointer}
+
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="mast">
+  <div>
+    <h1>Prompt Collector</h1>
+    <div class="sub">Autosaved locally · last change 14:02</div>
+  </div>
+  <div class="tally">
+    <div class="stat"><b id="total">7</b><span>prompts</span></div>
+    <div class="stat"><b id="files">2</b><span>files to export</span></div>
+  </div>
+</header>
+
+<div class="bar">
+  <label>Prompts per file <input type="number" id="per" value="5" min="1"></label>
+  <span class="hint" id="namehint">prompt_20261008_01.txt … _02.txt</span>
+  <div class="spacer"></div>
+  <button class="icon" id="kwOpen" aria-label="Strip keywords" title="Strip keywords"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.6 7.6 20 18M8.6 16.4 20 6"/></svg><span id="kwCount">4</span></button>
+  <button class="btn ghost" id="clear">Clear list</button>
+  <button class="btn">Export JSON</button>
+  <button class="btn primary">Export TXT</button>
+</div>
+
+<main class="desk">
+  <section class="left">
+    <div class="composer">
+      <div class="fieldlabel"><span>Paste prompt</span><em><kbd>Enter</kbd> add · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</em></div>
+      <textarea id="in" placeholder="A cinematic portrait of a man in a rain-soaked alley..."></textarea>
+      <div class="receipt" id="receipt">Last add: <b>removed 1 sentence</b>, collapsed 2 blank lines</div>
+      <div class="dupe" id="dupe">Same as <b id="dupeNo">#3</b> after cleanup.<span class="spacer"></span>
+        <button class="btn" id="skip">Skip</button><button class="btn primary" id="addAnyway">Add anyway</button></div>
+    </div>
+
+    <div class="listhead"><h2>Collected</h2><span>Drag to reorder · dashed line marks a file break</span></div>
+    <div class="slips" id="slips"></div>
+  </section>
+
+  <aside class="right">
+    <div class="edhead">
+      <div class="pos" id="pos">3 <small>/ 7</small></div>
+      <div class="nav"><button id="prev" aria-label="Previous">&larr;</button><button id="next" aria-label="Next">&rarr;</button></div>
+    </div>
+    <div class="tabs"><button class="on" data-t="clean">Cleaned</button><button data-t="orig">Original</button></div>
+    <div class="editor">
+      <textarea id="ed" aria-label="Edit prompt"></textarea>
+      <div class="orig" id="orig"></div>
+    </div>
+    <div class="edfoot"><span id="chars">412 chars · 4 lines</span><button class="btn ghost" id="del">Delete prompt</button></div>
+
+  </aside>
+</main>
+
+<dialog class="strip" id="kwDlg">
+  <div class="dlghead"><h3>Strip keywords</h3><button id="kwClose" aria-label="Close">&times;</button></div>
+  <p>Any sentence containing one of these is removed on add. Case is ignored. Changes re-clean all prompts.</p>
+  <div id="kws"></div>
+  <div class="addkw"><input id="kwIn" aria-label="New keyword" placeholder="e.g. reference image"><button class="btn" id="kwAdd">Add</button></div>
+</dialog>
+
+<div class="toast" id="toast"><span id="toastMsg">Deleted #4</span><button id="undo">Undo</button></div>
+
+<script>
+// Mockup only: sample data + enough behaviour to feel the flow. No persistence.
+let kws = ["uploaded photo","facial structure","exact body proportions","reference image"];
+const raw = [
+ "A weathered fisherman mending nets at dawn, golden side light.\n\n\nUse face image of the uploaded photo with the exact body proportions, facial proportions, hairstyle and facial structure.\n\nShot on 35mm, shallow depth of field.",
+ "Editorial fashion portrait, charcoal wool coat, overcast Seoul street, muted palette, 85mm lens.",
+ "Young man reading in a sunlit library, dust in the air, warm wood tones.\n\nKeep the facial structure identical to the uploaded photo.\n\nSoft window light, film grain, 50mm.",
+ "Night market in Taipei, neon reflections on wet pavement, candid street photography, 28mm.",
+ "Close-up portrait, rim light, black backdrop, dramatic chiaroscuro.",
+ "Hiker on a ridge above a sea of clouds, sunrise, wide angle, tiny figure for scale.",
+ "Barista pouring latte art, overhead shot, warm cafe ambience."
+];
+const clean = t => {
+  t = t.replace(/\r\n?/g,"\n");
+  const out = t.split("\n").map(line => line.split(/(?<=[.!?])\s+/)
+      .filter(s => !kws.some(k => s.toLowerCase().includes(k))).join(" ")).join("\n");
+  return out.replace(/\n\s*\n+/g,"\n").trim();
+};
+let items = raw.map(r => ({raw:r, text:clean(r)}));
+let sel = 2, view = "clean", lastDeleted = null, pending = null;
+const $ = id => document.getElementById(id);
+
+function render(){
+  const per = Math.max(1, +$("per").value || 1);
+  $("total").textContent = items.length;
+  const files = Math.max(1, Math.ceil(items.length / per));
+  $("files").textContent = items.length ? files : 0;
+  $("namehint").textContent = files > 1 ? `prompt_20261008_01.txt … _${String(files).padStart(2,"0")}.txt` : "prompt_20261008.txt";
+  const seen = {};
+  $("slips").innerHTML = items.map((it,i) => {
+    const d = seen[it.text]; seen[it.text] ??= i + 1;
+    const cut = i && i % per === 0 ? `<div class="cut">file ${String(i/per+1).padStart(2,"0")}</div>` : "";
+    return cut + `<button class="slip ${i===sel?"on":""} ${d?"dup":""}" data-i="${i}" style="animation-delay:${i*30}ms">
+      <span class="no">${i+1}</span><span class="meta">${d?"= #"+d:it.raw!==it.text?"cleaned":""}</span>
+      <span class="pv">${it.text.replace(/</g,"&lt;")}</span><span class="grip">⋮⋮</span></button>`;
+  }).join("");
+  const it = items[sel];
+  $("pos").innerHTML = items.length ? `${sel+1} <small>/ ${items.length}</small>` : `0 <small>/ 0</small>`;
+  $("ed").value = it ? it.text : "";
+  $("chars").textContent = it ? `${it.text.length} chars · ${it.text.split("\n").length} lines` : "";
+  if (it) {
+    const lines = it.raw.replace(/\r\n?/g,"\n").split("\n").map(l => l.split(/(?<=[.!?])\s+/).map(s =>
+      kws.some(k => s.toLowerCase().includes(k)) ? `<del>${s}</del>` : s).join(" "));
+    $("orig").innerHTML = lines.join("\n");
+  }
+  $("ed").style.display = view==="clean" ? "" : "none";
+  $("orig").style.display = view==="orig" ? "block" : "none";
+  $("kws").innerHTML = kws.map((k,i) => {
+    const hits = items.filter(x => x.raw.toLowerCase().includes(k)).length;
+    return `<div class="kw"><span>${k}</span><span class="hits">${hits} hit${hits===1?"":"s"}</span><button data-k="${i}" aria-label="Remove">&times;</button></div>`;
+  }).join("");
+  $("kwCount").textContent = kws.length;
+}
+function add(r){
+  items.push({raw:r, text:clean(r)}); sel = items.length - 1; $("in").value = "";
+  const removed = r.split(/(?<=[.!?])\s+/).filter(s => kws.some(k => s.toLowerCase().includes(k))).length;
+  $("receipt").innerHTML = `Last add: <b>${removed ? "removed "+removed+" sentence"+(removed>1?"s":"") : "nothing removed"}</b>`;
+  render();
+}
+$("in").addEventListener("keydown", e => {
+  if (e.key !== "Enter" || e.shiftKey) return;
+  e.preventDefault();
+  const r = $("in").value; if (!r.trim()) return;
+  const d = items.findIndex(x => x.text === clean(r));
+  if (d >= 0) { pending = r; $("dupeNo").textContent = "#"+(d+1); $("dupe").classList.add("show"); return; }
+  add(r);
+});
+$("addAnyway").onclick = () => { $("dupe").classList.remove("show"); add(pending); };
+$("skip").onclick = () => { $("dupe").classList.remove("show"); $("in").value = ""; };
+$("slips").onclick = e => { const b = e.target.closest(".slip"); if (b) { sel = +b.dataset.i; render(); } };
+$("prev").onclick = () => { sel = Math.max(0, sel-1); render(); };
+$("next").onclick = () => { sel = Math.min(items.length-1, sel+1); render(); };
+$("ed").oninput = e => { items[sel].text = e.target.value; const s = $("slips").querySelector(".on .pv"); if (s) s.textContent = e.target.value; };
+document.querySelector(".tabs").onclick = e => { if (!e.target.dataset.t) return; view = e.target.dataset.t;
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b===e.target)); render(); };
+$("per").oninput = render;
+$("del").onclick = () => { if (!items.length) return; lastDeleted = [sel, items.splice(sel,1)[0]];
+  $("toastMsg").textContent = `Deleted #${sel+1}`; sel = Math.min(sel, items.length-1); render();
+  $("toast").classList.add("show"); clearTimeout(window.tt); window.tt = setTimeout(() => $("toast").classList.remove("show"), 5000); };
+$("undo").onclick = () => { if (!lastDeleted) return; items.splice(lastDeleted[0],0,lastDeleted[1]); sel = lastDeleted[0]; lastDeleted = null;
+  $("toast").classList.remove("show"); render(); };
+$("clear").onclick = () => { if (confirm(`Clear all ${items.length} prompts? Export first if you need them.`)) { items = []; sel = 0; render(); } };
+$("kws").onclick = e => { const k = e.target.dataset.k; if (k != null) { kws.splice(+k,1); items.forEach(x => x.text = clean(x.raw)); render(); } };
+$("kwAdd").onclick = () => { const v = $("kwIn").value.trim().toLowerCase(); if (v && !kws.includes(v)) { kws.push(v); items.forEach(x => x.text = clean(x.raw)); } $("kwIn").value = ""; render(); };
+$("kwOpen").onclick = () => $("kwDlg").showModal();
+$("kwClose").onclick = () => $("kwDlg").close();
+$("kwDlg").onclick = e => { if (e.target === $("kwDlg")) $("kwDlg").close(); };
+$("kwIn").onkeydown = e => { if (e.key === "Enter") $("kwAdd").click(); };
+render();
+</script>
+</body>
+</html>

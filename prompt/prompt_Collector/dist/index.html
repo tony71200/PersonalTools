@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="en" data-theme="sunny">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prompt Collector</title>
+<script>/* apply the saved theme before first paint */ try { if (JSON.parse(localStorage.getItem("promptCollector.v1")).theme === "sky") document.documentElement.dataset.theme = "sky"; } catch (e) {}</script>
+<style>
+:root{
+  --serif:"Sitka Heading","Sitka Text",Cambria,Georgia,serif;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,monospace;
+  --r-lg:16px; --r:12px; --r-sm:9px;
+}
+[data-theme=sunny]{
+  --bg:#FFF6E9; --card:#FFFFFF; --ink:#2A2140; --ink-2:#5B5170; --muted:#8C8299; --line:#F1DFC6;
+  --primary:#FF6A3D; --primary-2:#FF9A3D; --on-primary:#FFFFFF; --accent:#12B3A3; --accent-wash:#DDF6F2;
+  --danger:#E5384F; --danger-wash:#FFE3E6; --shadow:43 25 10;
+}
+[data-theme=sky]{
+  --bg:#EEF6FF; --card:#FFFFFF; --ink:#13233F; --ink-2:#3E5070; --muted:#7486A3; --line:#D5E4F7;
+  --primary:#2E6BFF; --primary-2:#22B8FF; --on-primary:#FFFFFF; --accent:#FFB020; --accent-wash:#FFF1D6;
+  --danger:#E5384F; --danger-wash:#FFE3E6; --shadow:20 50 120;
+}
+:root{
+  --sh-1:0 1px 2px rgb(var(--shadow)/.08),0 2px 6px rgb(var(--shadow)/.06);
+  --sh-2:0 2px 4px rgb(var(--shadow)/.06),0 10px 24px -6px rgb(var(--shadow)/.16);
+  --sh-3:0 4px 10px rgb(var(--shadow)/.08),0 20px 40px -12px rgb(var(--shadow)/.28);
+  --inset:inset 0 2px 4px rgb(var(--shadow)/.06);
+  --ring:0 0 0 2px var(--card),0 0 0 5px color-mix(in srgb,var(--primary) 70%,transparent);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}
+button,input,textarea,select{font:inherit;color:inherit}
+button:disabled{opacity:.45;cursor:default;pointer-events:none}
+
+.mast{display:flex;align-items:center;gap:16px;padding:22px 32px}
+.logo{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;color:var(--on-primary);font:700 20px var(--serif);background:linear-gradient(135deg,var(--primary),var(--primary-2));box-shadow:var(--sh-2)}
+.mast h1{font:700 28px/1 var(--serif);margin:0;letter-spacing:-.01em}
+.mast .sub{color:var(--muted);font-size:12.5px;margin-top:4px}
+.spacer{flex:1}
+.themes{display:inline-flex;gap:4px;padding:4px;border-radius:999px;background:var(--card);box-shadow:var(--sh-1)}
+.themes button{border:0;border-radius:999px;padding:6px 14px;font-size:12px;font-weight:650;cursor:pointer;background:transparent;color:var(--ink-2);transition:background .15s,color .15s}
+.themes button[aria-pressed=true]{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:var(--on-primary);box-shadow:var(--sh-1)}
+.stat{background:var(--card);border-radius:var(--r);padding:10px 16px;box-shadow:var(--sh-1);text-align:right;min-width:104px}
+.stat b{display:block;font:700 26px/1 var(--serif);font-variant-numeric:tabular-nums}
+.stat span{font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.stat.hot b{color:var(--primary)}
+
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 32px;padding:10px 12px;background:var(--card);border-radius:var(--r-lg);box-shadow:var(--sh-2)}
+.trigctl{display:flex;align-items:center;gap:6px}
+.field{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-2);padding:0 6px}
+.field input,.field select{height:36px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--inset);outline:none;transition:border-color .15s,box-shadow .15s}
+.field input{width:70px;font-family:var(--mono)}
+.field select{min-width:160px;font-weight:600;cursor:pointer}
+.field input:focus,.field select:focus{border-color:var(--primary);box-shadow:var(--inset),var(--ring)}
+.hint{font:12px var(--mono);color:var(--muted)}
+.sep{width:1px;align-self:stretch;background:var(--line);margin:4px 2px}
+
+.btn{height:38px;border:0;border-radius:var(--r);padding:0 16px;font-weight:650;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;background:var(--card);color:var(--ink);box-shadow:var(--sh-1),inset 0 0 0 1px var(--line);transition:transform .14s,box-shadow .14s,background .14s}
+.btn:hover{transform:translateY(-1px);box-shadow:var(--sh-2),inset 0 0 0 1px var(--line)}
+.btn:active{transform:translateY(1px) scale(.98);box-shadow:var(--sh-1)}
+.btn:focus-visible{outline:none;box-shadow:var(--sh-1),var(--ring)}
+.btn.primary{color:var(--on-primary);background:linear-gradient(135deg,var(--primary),var(--primary-2));box-shadow:var(--sh-2),inset 0 1px 0 rgb(255 255 255/.35)}
+.btn.primary:hover{box-shadow:var(--sh-3),inset 0 1px 0 rgb(255 255 255/.35)}
+.btn.danger{color:var(--danger);background:transparent;box-shadow:none}
+.btn.danger:hover{background:var(--danger-wash)}
+.btn.icon{width:38px;padding:0;justify-content:center}
+.btn.icon.count{width:auto;padding:0 12px;font:650 12px var(--mono)}
+
+.desk{display:grid;grid-template-columns:minmax(0,1fr) 440px;gap:20px;padding:20px 32px 40px}
+.panel{background:var(--card);border-radius:var(--r-lg);box-shadow:var(--sh-2);padding:18px}
+.right{position:sticky;top:16px;align-self:start;max-height:calc(100vh - 32px);overflow:auto}
+
+.label{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);margin-bottom:8px}
+.label em{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400;color:var(--muted)}
+kbd{font:11px var(--mono);border-radius:6px;padding:1px 6px;background:var(--bg);border:1px solid var(--line);box-shadow:inset 0 -2px 0 var(--line)}
+textarea{width:100%;resize:vertical;padding:14px 16px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);box-shadow:var(--inset);font:13px/1.6 var(--mono);outline:none;transition:border-color .15s,box-shadow .15s,background .15s}
+textarea:focus{background:var(--card);border-color:var(--primary);box-shadow:var(--inset),var(--ring)}
+textarea:disabled{opacity:.6}
+textarea[readonly]{background:var(--bg);color:var(--ink-2)}
+#in{min-height:92px}
+.receipt{font-size:12px;color:var(--muted);margin-top:8px;min-height:22px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.receipt b{color:var(--ink-2);font-weight:600}
+.pill{display:inline-flex;align-items:center;font-size:11.5px;font-weight:650;padding:3px 10px;border-radius:999px;background:var(--accent-wash);color:color-mix(in srgb,var(--accent) 65%,var(--ink))}
+.pill.trig{background:color-mix(in srgb,var(--primary) 14%,var(--card));color:color-mix(in srgb,var(--primary) 75%,var(--ink))}
+.dupe{display:none;margin-top:10px;padding:10px 12px;border-radius:var(--r);background:var(--danger-wash);color:var(--danger);font-size:13px;align-items:center;gap:10px}
+.dupe.show{display:flex;animation:pop .22s cubic-bezier(.2,.9,.3,1.3)}
+
+.listhead{display:flex;align-items:baseline;justify-content:space-between;margin:22px 2px 12px}
+.listhead h2{font:700 18px/1.2 var(--serif);margin:0}
+.listhead span{font-size:12px;color:var(--muted)}
+.slips{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.slip{position:relative;text-align:left;border:0;background:var(--card);border-radius:var(--r);padding:12px 13px;cursor:pointer;min-height:104px;display:flex;flex-direction:column;gap:6px;box-shadow:var(--sh-1),inset 0 0 0 1px var(--line);transition:transform .16s,box-shadow .16s}
+.slip:hover{transform:translateY(-2px);box-shadow:var(--sh-2),inset 0 0 0 1px var(--line)}
+.slip:focus-visible{outline:none;box-shadow:var(--sh-1),var(--ring)}
+.slip.new{animation:pop .3s cubic-bezier(.2,.9,.3,1.3) both}
+.slip .no{font:700 22px/1 var(--serif);font-variant-numeric:tabular-nums}
+.slip .pv{font:11px/1.45 var(--mono);color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.slip .meta{position:absolute;top:11px;right:11px;font-size:10.5px;font-weight:650;padding:1px 7px;border-radius:999px;background:var(--bg);color:var(--muted)}
+.slip .meta:empty{display:none}
+.slip.dup .meta{background:var(--danger-wash);color:var(--danger)}
+.slip.on{color:var(--on-primary);background:linear-gradient(140deg,var(--primary),var(--primary-2));box-shadow:var(--sh-3)}
+.slip.on .pv{color:rgb(255 255 255/.88)}
+.slip.on .meta{background:rgb(255 255 255/.22);color:#fff}
+.btn.primary:focus-visible,.btn.danger:focus-visible,.slip.on:focus-visible{outline:none;box-shadow:var(--sh-2),var(--ring)}
+.slip.dragging{opacity:.4}
+.slip.drop{outline:3px solid var(--primary);outline-offset:3px}
+.cut{grid-column:1/-1;display:flex;align-items:center;gap:10px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin:2px 0}
+.cut::before,.cut::after{content:"";flex:1;border-top:2px dashed var(--line)}
+.empty{color:var(--muted);font-size:13px;margin:16px 2px}
+
+.edhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.pos{font:700 30px/1 var(--serif);font-variant-numeric:tabular-nums}
+.pos small{font-size:16px;color:var(--muted);font-weight:400}
+.nav{display:flex;gap:6px}
+.tabs{display:inline-flex;gap:4px;padding:4px;border-radius:var(--r);background:var(--bg);box-shadow:var(--inset);margin-bottom:12px}
+.tabs button{border:0;background:none;padding:6px 14px;border-radius:var(--r-sm);cursor:pointer;color:var(--muted);font-size:13px;font-weight:650;transition:background .15s,color .15s}
+.tabs button.on{background:var(--card);color:var(--ink);box-shadow:var(--sh-1)}
+.trigline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:12px;color:var(--muted)}
+.trigline code{font:12px var(--mono);padding:4px 10px;border-radius:var(--r-sm);background:color-mix(in srgb,var(--primary) 12%,var(--card));color:color-mix(in srgb,var(--primary) 80%,var(--ink))}
+#ed{min-height:340px}
+.orig{min-height:200px;padding:14px 16px;border-radius:var(--r);background:var(--bg);box-shadow:var(--inset);font:13px/1.6 var(--mono);white-space:pre-wrap;word-break:break-word;color:var(--ink-2)}
+.orig del{color:var(--danger);background:var(--danger-wash);border-radius:4px;text-decoration-thickness:1px}
+.edfoot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;color:var(--muted)}
+
+dialog{width:520px;max-width:calc(100vw - 32px);padding:0;border:0;border-radius:20px;background:var(--card);color:var(--ink);box-shadow:var(--sh-3)}
+dialog[open]{animation:pop .24s cubic-bezier(.2,.9,.3,1.2)}
+dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
+.dlg{padding:20px 22px 22px}
+.dlghead{display:flex;justify-content:space-between;align-items:center}
+.dlghead h3{font:700 18px/1.2 var(--serif);margin:0}
+.dlg p{margin:6px 0 14px;font-size:12.5px;color:var(--muted)}
+.kw{display:flex;align-items:center;padding:8px 4px;border-bottom:1px solid var(--line);font:12.5px var(--mono)}
+.kw .hits{font-family:var(--sans);font-size:11px;color:var(--muted);margin-left:auto;margin-right:12px}
+.kw button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;border-radius:6px;padding:2px 6px}
+.kw button:hover{color:var(--danger);background:var(--danger-wash)}
+.addkw{display:flex;gap:8px;margin-top:12px}
+.addkw input,.preset input{height:36px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--inset);font:12.5px var(--mono);outline:none;color:var(--ink)}
+.addkw input{flex:1}
+.addkw input:focus,.preset input:focus{border-color:var(--primary);box-shadow:var(--inset),var(--ring)}
+.preset{border-radius:var(--r);padding:12px;background:var(--bg);box-shadow:var(--inset);margin-bottom:10px;display:grid;gap:8px}
+.preset .row{display:grid;grid-template-columns:1fr 2fr;gap:8px}
+.preset label{display:grid;gap:4px;font-size:11.5px;font-weight:700;color:var(--ink-2);text-transform:uppercase;letter-spacing:.04em}
+.preset input{background:var(--card);text-transform:none;letter-spacing:0;font-weight:400}
+.preset .btn.danger{justify-self:end;height:32px}
+
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,90px);opacity:0;pointer-events:none;display:flex;gap:14px;align-items:center;max-width:calc(100vw - 32px);background:var(--ink);color:var(--card);padding:10px 18px;border-radius:999px;font-size:13px;box-shadow:var(--sh-3);transition:transform .25s cubic-bezier(.2,.9,.3,1.2),opacity .2s}
+.toast.show{transform:translate(-50%,0);opacity:1;pointer-events:auto}
+.toast button{background:none;border:0;color:var(--primary-2);font-weight:700;cursor:pointer}
+
+@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:900px){
+  .mast{flex-wrap:wrap;padding:16px}
+  .bar{margin:0 16px}
+  .desk{grid-template-columns:1fr;padding:16px}
+  .right{position:static;max-height:none}
+  .preset .row{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header class="mast">
+  <div class="logo" aria-hidden="true">P</div>
+  <div>
+    <h1>Prompt Collector</h1>
+    <div class="sub" id="saved">Autosaved locally</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="themes" role="group" aria-label="Theme">
+    <button data-theme-set="sunny" aria-pressed="true">Sunny</button><button data-theme-set="sky" aria-pressed="false">Sky</button>
+  </div>
+  <div class="stat hot"><b id="total">0</b><span>prompts</span></div>
+  <div class="stat"><b id="files">0</b><span>files to export</span></div>
+</header>
+
+<div class="bar">
+  <div class="trigctl" id="trigCtl">
+    <label class="field">Trigger <select id="trig"></select></label>
+    <button class="btn icon" id="trigOpen" aria-label="Edit trigger presets" title="Edit trigger presets">&#9998;</button>
+    <span class="sep"></span>
+  </div>
+  <label class="field">Prompts per file <input type="number" id="per" min="1" step="1"></label>
+  <span class="hint" id="namehint"></span>
+  <div class="spacer"></div>
+  <button class="btn icon count" id="kwOpen" aria-label="Strip keywords" title="Strip keywords"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.6 7.6 20 18M8.6 16.4 20 6"/></svg><span id="kwCount">0</span></button>
+  <button class="btn danger" id="clear">Clear list</button>
+  <button class="btn" id="exportJson">Export JSON</button>
+  <button class="btn primary" id="exportTxt">Export TXT</button>
+</div>
+
+<main class="desk">
+  <section>
+    <div class="panel">
+      <label class="label" for="in"><span>Paste prompt</span><em><kbd>Enter</kbd> add · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</em></label>
+      <textarea id="in" placeholder="Paste a prompt and press Enter"></textarea>
+      <div class="receipt" id="receipt"></div>
+      <div class="dupe" id="dupe" role="alert">Same as <b id="dupeNo"></b> after cleanup.<span class="spacer"></span>
+        <button class="btn" id="skip">Skip</button><button class="btn primary" id="addAnyway">Add anyway</button></div>
+    </div>
+    <div class="listhead"><h2>Collected</h2><span>Newest first · export runs #1 → #n</span></div>
+    <div class="slips" id="slips"></div>
+    <p class="empty" id="empty">Paste a prompt above and press Enter.</p>
+  </section>
+
+  <aside class="panel right">
+    <div class="edhead">
+      <div class="pos" id="pos"></div>
+      <div class="nav"><button class="btn icon" id="prev" aria-label="Previous prompt">&larr;</button><button class="btn icon" id="next" aria-label="Next prompt">&rarr;</button></div>
+    </div>
+    <div class="tabs"><button class="on" data-t="clean">Cleaned</button><button data-t="orig">Original</button><button data-t="final" id="tabFinal">Export preview</button></div>
+    <div class="trigline" id="trigline"></div>
+    <div class="editor">
+      <textarea id="ed" aria-label="Edit prompt"></textarea>
+      <div class="orig" id="orig" hidden></div>
+    </div>
+    <div class="edfoot"><span id="chars"></span><button class="btn danger" id="del">Delete prompt</button></div>
+  </aside>
+</main>
+
+<dialog id="kwDlg" aria-label="Strip keywords">
+  <div class="dlg">
+    <div class="dlghead"><h3>Strip keywords</h3><button class="btn icon" id="kwClose" aria-label="Close">&times;</button></div>
+    <p>Any sentence containing one of these is removed on add. Case is ignored. Prompts you edited by hand are left alone.</p>
+    <div id="kws"></div>
+    <div class="addkw"><input id="kwIn" aria-label="New keyword" placeholder="e.g. reference image"><button class="btn" id="kwAdd">Add</button></div>
+  </div>
+</dialog>
+
+<dialog id="trigDlg" aria-label="Trigger presets">
+  <div class="dlg">
+    <div class="dlghead"><h3>Trigger presets</h3><button class="btn icon" id="trigClose" aria-label="Close">&times;</button></div>
+    <p>The active trigger is put at the start of every exported prompt. If the prompt already contains one of the "already described" phrases, only the token is added.</p>
+    <div id="trigList"></div>
+    <button class="btn" id="trigAdd">+ Add preset</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status"><span id="toastMsg"></span><button id="toastAct" hidden></button></div>
+
+<script src="core.js"></script>
+<script>
+"use strict";
+const C = window.PromptCore;
+const KEY = "promptCollector.v1";
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const newId = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+const activeTrigger = () => C.findTrigger(state.triggers, state.activeTrigger);
+
+let state;
+let view = "clean";      // editor tab: "clean" | "orig" | "final"
+let pending = null;      // raw text waiting on the duplicate warning
+let lastAdded = null;    // id of the slip to animate once
+let saveTimer = null;
+let toastTimer = null;
+let saveBlocked = false; // true while unreadable data could not be backed up
+
+// ---- toast ----
+function toast(msg, action, sticky) {
+  $("toastMsg").textContent = msg;
+  const b = $("toastAct");
+  b.hidden = !action;
+  if (action) { b.textContent = action.label; b.onclick = () => { hideToast(); action.run(); }; }
+  $("toast").classList.add("show");
+  clearTimeout(toastTimer);
+  if (!sticky) toastTimer = setTimeout(hideToast, 5000);
+}
+function hideToast() { $("toast").classList.remove("show"); }
+$("toast").addEventListener("click", e => { if (e.target !== $("toastAct")) hideToast(); });
+
+// ---- persistence ----
+function load() {
+  let raw = null;
+  try { raw = localStorage.getItem(KEY); } catch (e) { /* storage blocked: start fresh */ }
+  const parsed = C.parseState(raw);
+  state = parsed.state;
+  if (parsed.corrupt) {
+    let kept = true;
+    try { localStorage.setItem(KEY + ".corrupt", raw); } catch (e) { kept = false; }
+    if (kept) toast("Saved data could not be read. A backup was kept in localStorage.", null, true);
+    else {
+      saveBlocked = true;
+      $("saved").textContent = "Autosave paused: nothing is being saved";
+      toast("Saved data could not be read or backed up. Autosave is paused.",
+        { label: "Discard it", run: () => { saveBlocked = false; saveNow(); } }, true);
+    }
+  }
+}
+function saveNow() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (saveBlocked) return;
+  try {
+    localStorage.setItem(KEY, JSON.stringify(state));
+    $("saved").textContent = "Autosaved locally · last change " + new Date().toTimeString().slice(0, 5);
+  } catch (e) {
+    $("saved").textContent = "Autosave failed: not saved";
+    toast("Autosave failed: storage is full. Export now.", null, true);
+  }
+}
+function changed() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, 300);
+  render();
+}
+addEventListener("pagehide", () => { if (saveTimer) saveNow(); });
+addEventListener("storage", e => {
+  if (e.key !== KEY || !e.newValue) return;
+  const p = C.parseState(e.newValue);
+  if (p.corrupt) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  state = p.state;
+  render();
+});
+
+// ---- render ----
+function markRemoved(it) {
+  let html = "", rest = it.raw.replace(/\r\n?/g, "\n");
+  for (const s of it.removed) {
+    const k = rest.indexOf(s);
+    if (k < 0) continue;
+    html += esc(rest.slice(0, k)) + `<del>${esc(s)}</del>`;
+    rest = rest.slice(k + s.length);
+  }
+  return html + esc(rest);
+}
+
+function renderKeywords() {
+  $("kwCount").textContent = state.keywords.length;
+  $("kws").innerHTML = state.keywords.map((k, i) => {
+    const hits = state.items.filter(x => x.raw.toLowerCase().includes(k)).length;
+    return `<div class="kw"><span>${esc(k)}</span><span class="hits">${hits} hit${hits === 1 ? "" : "s"}</span>` +
+      `<button data-k="${i}" aria-label="Remove ${esc(k)}">&times;</button></div>`;
+  }).join("") || `<p>No keywords. Nothing is stripped.</p>`;
+}
+
+function render() {
+  applyTheme();
+  const items = state.items, n = items.length, per = state.perFile;
+  if (state.selected > n - 1) state.selected = Math.max(0, n - 1);
+  const files = Math.ceil(n / per);
+  const names = C.fileNames(new Date(), files, "txt");
+
+  $("total").textContent = n;
+  $("files").textContent = files;
+  $("namehint").textContent = files > 1 ? `${names[0]} … ${names[files - 1]}` : (names[0] || "");
+  if (document.activeElement !== $("per")) $("per").value = per;
+
+  const firstSeen = new Map();
+  items.forEach((it, i) => { if (!firstSeen.has(it.text)) firstSeen.set(it.text, i + 1); });
+  const width = files > 99 ? 3 : 2;
+  const num = k => String(k).padStart(width, "0");
+  let html = "";
+  for (let i = n - 1; i >= 0; i--) { // newest first; the number stays the export position
+    const it = items[i];
+    const dupOf = firstSeen.get(it.text) !== i + 1 ? firstSeen.get(it.text) : 0;
+    const mark = dupOf ? `= #${dupOf}` : it.edited ? "edited" : it.removed.length ? "cleaned" : "";
+    const cls = "slip" + (i === state.selected ? " on" : "") + (dupOf ? " dup" : "") + (it.id === lastAdded ? " new" : "");
+    html += `<button class="${cls}" data-i="${i}" draggable="true">` +
+      `<span class="no">${i + 1}</span><span class="meta">${mark}</span><span class="pv">${esc(it.text)}</span></button>`;
+    if (i && i % per === 0) html += `<div class="cut">&#9650; file ${num(i / per + 1)} · file ${num(i / per)} &#9660;</div>`;
+  }
+  $("slips").innerHTML = html;
+  lastAdded = null;
+  $("empty").hidden = n > 0;
+
+  const it = items[state.selected];
+  const text = it ? it.text : "";
+  $("pos").innerHTML = `${n ? state.selected + 1 : 0} <small>/ ${n}</small>`;
+  $("ed").disabled = $("del").disabled = !it;
+  $("prev").disabled = !it || state.selected === 0;
+  $("next").disabled = !it || state.selected === n - 1;
+  $("exportTxt").disabled = $("exportJson").disabled = $("clear").disabled = !n;
+  const trig = activeTrigger();
+  const body = it ? C.collapseBlank(text) : "";
+  const prefix = body ? C.triggerPrefix(body, trig) : "";
+  const final = body ? C.applyTrigger(body, trig) : "";
+  const shown = view === "final" ? final : text;
+  if ($("ed").value !== shown) $("ed").value = shown;
+  $("ed").readOnly = view === "final";
+  $("chars").textContent = it ? `${final.length} chars on export` : "";
+  $("trigline").innerHTML = !trig ? "No trigger selected"
+    : !C.triggerPrefix("", trig) ? "Trigger has no token, nothing added"
+    : !it ? ""
+    : !body ? "Empty prompt, skipped on export"
+    : prefix ? `Adds on export: <code>${esc(prefix)}</code>` : "Token already in prompt, nothing added";
+  $("orig").innerHTML = it ? markRemoved(it) : "";
+  $("ed").hidden = view === "orig";
+  $("orig").hidden = view !== "orig";
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === view));
+  renderKeywords();
+  renderTriggerSelect();
+}
+
+function renderTriggerSelect() {
+  const sel = $("trig");
+  if (document.activeElement === sel) return; // don't rebuild an open dropdown
+  sel.innerHTML = `<option value="">None</option>` +
+    state.triggers.map(t => `<option value="${esc(t.id)}">${esc(t.token.trim() || "(untitled)")}</option>`).join("");
+  sel.value = state.activeTrigger;
+}
+
+// ---- composer ----
+function hideDupe() { pending = null; $("dupe").classList.remove("show"); }
+
+function addPrompt(raw) {
+  const { text, removed } = C.clean(raw, state.keywords);
+  if (!text) { $("receipt").textContent = "Everything was stripped. Check strip keywords."; return; }
+  const it = { id: newId(), raw, text, removed, edited: false, addedAt: C.isoLocal(new Date()) };
+  state.items.push(it);
+  state.selected = state.items.length - 1;
+  lastAdded = it.id;
+  $("in").value = "";
+  hideDupe();
+  const r = removed.length;
+  const prefix = C.triggerPrefix(text, activeTrigger());
+  $("receipt").innerHTML = `<span class="pill">${r ? `removed ${r} sentence${r > 1 ? "s" : ""}` : "nothing removed"}</span>` +
+    (prefix ? `<span class="pill trig">+ ${esc(prefix)}</span>` : "");
+  changed(); // no scrollIntoView: the new slip renders first, right under the composer, and focus stays in it
+}
+
+$("in").addEventListener("keydown", e => {
+  if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+  e.preventDefault();
+  const raw = $("in").value;
+  if (!raw.trim()) return;
+  const { text } = C.clean(raw, state.keywords);
+  const d = text ? C.findDuplicate(state.items, text) : -1;
+  if (d >= 0) {
+    pending = raw;
+    $("dupeNo").textContent = "#" + (d + 1);
+    $("dupe").classList.add("show");
+    return;
+  }
+  addPrompt(raw);
+});
+$("in").addEventListener("input", hideDupe);
+$("addAnyway").onclick = () => {
+  if (pending === null) return;
+  const raw = pending;
+  hideDupe();
+  addPrompt(raw);
+  $("in").focus();
+};
+$("skip").onclick = () => { hideDupe(); $("in").value = ""; $("in").focus(); };
+
+// ---- selection, editor, tabs ----
+function select(i) {
+  if (!state.items.length) return;
+  state.selected = Math.max(0, Math.min(state.items.length - 1, i));
+  changed();
+  $("slips").querySelector(".on")?.scrollIntoView({ block: "nearest" });
+}
+$("slips").addEventListener("click", e => { const b = e.target.closest(".slip"); if (b) select(+b.dataset.i); });
+$("prev").onclick = () => select(state.selected - 1);
+$("next").onclick = () => select(state.selected + 1);
+document.addEventListener("keydown", e => {
+  if (e.target.closest("textarea, input, select, dialog") || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key === "ArrowLeft") select(state.selected - 1);
+  if (e.key === "ArrowRight") select(state.selected + 1);
+});
+$("ed").addEventListener("input", e => {
+  const it = state.items[state.selected];
+  it.text = e.target.value;
+  it.edited = true;
+  changed();
+});
+document.querySelector(".tabs").addEventListener("click", e => {
+  const t = e.target.dataset.t;
+  if (t) { view = t; render(); }
+});
+
+// ---- prompts per file ----
+$("per").addEventListener("input", e => {
+  const v = Number(e.target.value);
+  if (Number.isInteger(v) && v >= 1) { state.perFile = v; changed(); }
+});
+$("per").addEventListener("change", e => { e.target.value = state.perFile; });
+
+// ---- theme ----
+function applyTheme() {
+  document.documentElement.dataset.theme = state.theme;
+  document.querySelectorAll("[data-theme-set]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.themeSet === state.theme)));
+}
+document.querySelector(".themes").addEventListener("click", e => {
+  const b = e.target.closest("[data-theme-set]");
+  if (b) { state.theme = b.dataset.themeSet; changed(); }
+});
+
+function boot() {
+  load();
+  render();
+  $("in").focus();
+}
+// ---- delete with undo ----
+$("del").onclick = () => {
+  const i = state.selected, it = state.items[i];
+  if (!it) return;
+  state.items.splice(i, 1);
+  changed();
+  toast(`Deleted #${i + 1}`, { label: "Undo", run: () => {
+    state.items.splice(Math.min(i, state.items.length), 0, it);
+    state.items = C.reclean(state.items, state.keywords);
+    state.selected = state.items.findIndex(x => x.id === it.id);
+    changed();
+  } });
+};
+
+// ---- drag to reorder ----
+let dragFrom = null;
+$("slips").addEventListener("dragstart", e => {
+  const b = e.target.closest(".slip");
+  if (!b) return;
+  dragFrom = +b.dataset.i;
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", "");
+  b.classList.add("dragging");
+});
+$("slips").addEventListener("dragover", e => {
+  const b = e.target.closest(".slip");
+  if (dragFrom === null || !b) return;
+  e.preventDefault();
+  document.querySelectorAll(".slip.drop").forEach(x => { if (x !== b) x.classList.remove("drop"); });
+  b.classList.add("drop");
+});
+$("slips").addEventListener("drop", e => {
+  const b = e.target.closest(".slip");
+  if (dragFrom === null || !b) return;
+  e.preventDefault();
+  const selectedItem = state.items[state.selected];
+  state.items = C.move(state.items, dragFrom, +b.dataset.i);
+  state.selected = state.items.indexOf(selectedItem);
+  dragFrom = null;
+  changed();
+});
+$("slips").addEventListener("dragend", () => { dragFrom = null; render(); });
+
+// ---- strip keywords dialog ----
+function setKeywords(list) {
+  state.keywords = list;
+  state.items = C.reclean(state.items, list);
+  changed();
+}
+$("kwOpen").onclick = () => { renderKeywords(); $("kwDlg").showModal(); $("kwIn").focus(); };
+$("kwClose").onclick = () => $("kwDlg").close();
+$("kwDlg").addEventListener("click", e => { if (e.target === $("kwDlg")) $("kwDlg").close(); }); // backdrop
+$("kws").addEventListener("click", e => {
+  const k = e.target.dataset.k;
+  if (k !== undefined) setKeywords(state.keywords.filter((_, i) => i !== +k));
+});
+$("kwAdd").onclick = () => {
+  const v = $("kwIn").value.trim().toLowerCase();
+  $("kwIn").value = "";
+  if (v && !state.keywords.includes(v)) setKeywords([...state.keywords, v]);
+  $("kwIn").focus();
+};
+$("kwIn").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("kwAdd").click(); } });
+
+// ---- clear list ----
+$("clear").onclick = () => {
+  const n = state.items.length;
+  if (!n || !confirm(`Clear all ${n} prompts? Export first if you need them.`)) return;
+  state.items = [];
+  state.selected = 0;
+  changed();
+};
+
+// ---- export ----
+// One <a download> per file, 150 ms apart; Chrome/Edge asks once to allow multiple downloads.
+function download(files) {
+  files.forEach((f, n) => setTimeout(() => {
+    const type = f.name.endsWith(".json") ? "application/json" : "text/plain;charset=utf-8";
+    const url = URL.createObjectURL(new Blob([f.content], { type }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: f.name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, n * 150));
+}
+function exportAs(kind) {
+  const { files, skipped } = C.buildFiles(kind, state.items, { perFile: state.perFile, keywords: state.keywords, trigger: activeTrigger() });
+  if (!files.length) { toast("Nothing to export: every prompt is empty."); return; }
+  download(files);
+  toast(`Exported ${files.length} ${kind.toUpperCase()} file${files.length > 1 ? "s" : ""}` +
+    (skipped ? ` · skipped ${skipped} empty prompt${skipped > 1 ? "s" : ""}` : ""));
+}
+$("exportTxt").onclick = () => exportAs("txt");
+$("exportJson").onclick = () => exportAs("json");
+
+// ---- trigger presets ----
+$("trig").addEventListener("change", e => {
+  state.activeTrigger = e.target.value;
+  changed();
+  const t = activeTrigger();
+  toast(!t ? "Trigger off"
+    : !C.triggerPrefix("", t) ? "Trigger (untitled) has no token, nothing will be added"
+    : `Trigger ${t.token.trim()} applies to all ${state.items.length} prompts on export`);
+});
+function renderTriggerRows() {
+  $("trigList").innerHTML = state.triggers.map(t => `<div class="preset" data-id="${esc(t.id)}">
+    <div class="row"><label>Token<input data-f="token" value="${esc(t.token)}"></label>
+    <label>Description<input data-f="description" value="${esc(t.description)}"></label></div>
+    <label>Already described if prompt contains (comma separated)<input data-f="already" value="${esc(t.already.join(", "))}"></label>
+    <button class="btn danger" data-del="${esc(t.id)}">Delete preset</button></div>`).join("") || `<p>No presets yet.</p>`;
+}
+$("trigOpen").onclick = () => { renderTriggerRows(); $("trigDlg").showModal(); };
+$("trigClose").onclick = () => $("trigDlg").close();
+$("trigDlg").addEventListener("click", e => { if (e.target === $("trigDlg")) $("trigDlg").close(); }); // backdrop
+// Edits update state without rebuilding the rows, so the caret stays put while typing.
+$("trigList").addEventListener("input", e => {
+  const field = e.target.dataset.f, row = e.target.closest(".preset");
+  if (!field || !row) return;
+  const t = state.triggers.find(x => x.id === row.dataset.id);
+  if (!t) return;
+  t[field] = field === "already" ? C.parseAlready(e.target.value) : e.target.value;
+  changed();
+});
+$("trigList").addEventListener("click", e => {
+  const id = e.target.dataset.del;
+  if (id === undefined) return;
+  state.triggers = state.triggers.filter(t => t.id !== id);
+  if (state.activeTrigger === id) state.activeTrigger = "";
+  renderTriggerRows();
+  changed();
+});
+$("trigAdd").onclick = () => {
+  const t = { id: newId(), token: "", description: "", already: [] };
+  state.triggers.push(t);
+  renderTriggerRows();
+  changed();
+  $("trigList").querySelector(`[data-id="${t.id}"] input`).focus();
+};
+
+boot();
+</script>
+</body>
+</html>
