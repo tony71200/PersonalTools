@@ -1,6 +1,7 @@
 // Run: node test_core.mjs   (from prompt/CaptionPrompt)
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { deflateSync, crc32 } from "node:zlib";
 
 const C = createRequire(import.meta.url)("./dist/core.js");
 
@@ -150,5 +151,71 @@ for (const t of [H3_PLAIN, H3_MD, H3_BARE]) {
   assert.deepEqual(s.parts, ["", "Just a note.\r\nSecond line.\r\n", "", "", "\r\n"]);
   assert.equal(C.setH3Bodies(s, ...C.h3Bodies(s)), t);
   assert.equal(C.joinH3(C.splitH3("").parts), "");
+}
+// --- padSnippet ---
+assert.equal(C.padSnippet("", "", "x"), "x");
+assert.equal(C.padSnippet("a man", "", "tall"), " tall");
+assert.equal(C.padSnippet("a man ", "", "tall"), "tall");
+assert.equal(C.padSnippet("a\n", "", "x"), "x");
+assert.equal(C.padSnippet("(", ")", "x"), "x");
+assert.equal(C.padSnippet("a", "b", "x"), " x ");
+assert.equal(C.padSnippet("a", ", b", "x"), " x");
+assert.equal(C.padSnippet("a ", " b", "x"), "x");
+
+// --- word file ---
+assert.ok(C.DEFAULT_WORDS.length > 0 && C.DEFAULT_WORDS.every(w => w.label && w.text));
+assert.deepEqual(
+  C.parseWords('{"version":1,"words":[{"label":" Ivan ","text":"Ivan_Ryo"},{"label":"","text":"x"},{"label":"y"},{"label":"Gym","text":"in a gym"}]}'),
+  [{ label: "Ivan", text: "Ivan_Ryo" }, { label: "Gym", text: "in a gym" }]);
+assert.throws(() => C.parseWords("not json"), /JSON/);
+assert.throws(() => C.parseWords('{"x":1}'), /words/);
+{
+  const cur = [{ label: "Ivan", text: "Ivan_Ryo" }];
+  const m = C.mergeWords(cur, [{ label: "ivan", text: "other" }, { label: "Gym", text: "in a gym" }]);
+  assert.deepEqual(m, { words: [{ label: "Ivan", text: "Ivan_Ryo" }, { label: "Gym", text: "in a gym" }], added: 1, skipped: 1 });
+  assert.equal(cur.length, 1, "input not mutated");
+}
+{
+  const j = C.wordsJson(C.DEFAULT_WORDS);
+  assert.ok(j.startsWith('{\n  "version": 1,') && j.endsWith("\n"));
+  assert.deepEqual(C.parseWords(j), C.DEFAULT_WORDS);
+}
+
+// --- copyPngText ---
+const SIG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+function pngChunk(type, data) {
+  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+  const td = Buffer.concat([Buffer.from(type, "latin1"), data]);
+  const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td));
+  return Buffer.concat([len, td, crc]);
+}
+function pngChunks(b) {
+  const out = [];
+  for (let p = 8; p + 12 <= b.length;) {
+    const len = b.readUInt32BE(p), type = b.toString("latin1", p + 4, p + 8);
+    out.push({ type, ok: crc32(b.subarray(p + 4, p + 8 + len)) === b.readUInt32BE(p + 8 + len) });
+    p += 12 + len;
+  }
+  return out;
+}
+const IHDR = pngChunk("IHDR", Buffer.from([0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 0, 0, 0]));
+const IDAT = pngChunk("IDAT", deflateSync(Buffer.from([0, 0])));
+const IEND = pngChunk("IEND", Buffer.alloc(0));
+const plainPng = Buffer.concat([SIG, IHDR, IDAT, IEND]);
+const taggedPng = Buffer.concat([SIG, IHDR,
+  pngChunk("tEXt", Buffer.from('prompt\0{"a":1}', "latin1")),
+  pngChunk("tEXt", Buffer.from("workflow\0{}", "latin1")), IDAT, IEND]);
+{
+  const out = Buffer.from(C.copyPngText(new Uint8Array(taggedPng), new Uint8Array(plainPng)));
+  assert.ok(out.subarray(0, 8).equals(SIG));
+  assert.deepEqual(pngChunks(out).map(c => c.type), ["IHDR", "tEXt", "tEXt", "IDAT", "IEND"]);
+  assert.ok(pngChunks(out).every(c => c.ok), "every CRC still valid");
+  assert.ok(out.includes('prompt\0{"a":1}') && out.includes("workflow\0{}"));
+}
+{
+  const dst = new Uint8Array(plainPng), junk = new Uint8Array([1, 2, 3]);
+  assert.equal(C.copyPngText(junk, dst), dst);                       // source not a PNG
+  assert.equal(C.copyPngText(new Uint8Array(taggedPng), junk), junk); // target not a PNG
+  assert.equal(C.copyPngText(new Uint8Array(plainPng), dst), dst);    // nothing to copy
 }
 console.log("core tests passed");

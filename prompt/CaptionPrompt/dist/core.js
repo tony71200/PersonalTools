@@ -132,10 +132,79 @@
     return head + putBody(o1, b1, split.eol) + mid + putBody(o2, b2, split.eol) + tail;
   }
 
+  // ---- snippets ----
+  // Add a space so the snippet does not touch a neighboring word.
+  function padSnippet(before, after, snippet) {
+    const lead = before && !/[\s(]$/.test(before) ? " " : "";
+    const trail = after && !/^[\s,.;:!?)]/.test(after) ? " " : "";
+    return lead + snippet + trail;
+  }
+
+  const DEFAULT_WORDS = [
+    { label: "Ivan", text: "Ivan_Ryo, a 25yo Asian young man" },
+    { label: "Close-up", text: "close-up shot" },
+    { label: "Soft light", text: "soft natural light" },
+    { label: "Gym", text: "in a gym" },
+  ];
+  function parseWords(jsonText) {
+    let d;
+    try { d = JSON.parse(jsonText); } catch (e) { throw new Error("File không phải JSON hợp lệ"); }
+    if (!d || !Array.isArray(d.words)) throw new Error('File thiếu mảng "words"');
+    return d.words
+      .filter(w => w && typeof w.label === "string" && typeof w.text === "string")
+      .map(w => ({ label: w.label.trim(), text: w.text.trim() }))
+      .filter(w => w.label && w.text);
+  }
+  function mergeWords(current, incoming) {
+    const seen = new Set(current.map(w => w.label.toLowerCase()));
+    const words = current.slice();
+    let added = 0, skipped = 0;
+    for (const w of incoming) {
+      const k = w.label.toLowerCase();
+      if (seen.has(k)) { skipped++; continue; }
+      seen.add(k);
+      words.push(w);
+      added++;
+    }
+    return { words, added, skipped };
+  }
+  function wordsJson(words) { return JSON.stringify({ version: 1, words }, null, 2) + "\n"; }
+
+  // ---- PNG text chunks ----
+  const PNG_SIG = [137, 80, 78, 71, 13, 10, 26, 10];
+  const isPng = b => b && b.length >= 8 && PNG_SIG.every((v, i) => b[i] === v);
+  function pngChunks(b) {
+    const out = [];
+    for (let p = 8; p + 12 <= b.length;) {
+      const len = ((b[p] << 24) | (b[p + 1] << 16) | (b[p + 2] << 8) | b[p + 3]) >>> 0;
+      const end = p + 12 + len;
+      if (end > b.length) break;
+      out.push({ type: String.fromCharCode(b[p + 4], b[p + 5], b[p + 6], b[p + 7]), start: p, end });
+      p = end;
+    }
+    return out;
+  }
+  // Copy the source's text chunks (ComfyUI prompt/workflow/parameters) into the target, right after IHDR.
+  // Chunks are copied whole, CRC included, so nothing is recomputed.
+  function copyPngText(src, dst) {
+    if (!isPng(src) || !isPng(dst)) return dst;
+    const text = pngChunks(src).filter(c => c.type === "tEXt" || c.type === "iTXt" || c.type === "zTXt");
+    const ihdr = pngChunks(dst)[0];
+    if (!text.length || !ihdr || ihdr.type !== "IHDR") return dst;
+    const extra = text.reduce((s, c) => s + c.end - c.start, 0);
+    const out = new Uint8Array(dst.length + extra);
+    out.set(dst.subarray(0, ihdr.end), 0);
+    let p = ihdr.end;
+    for (const c of text) { out.set(src.subarray(c.start, c.end), p); p += c.end - c.start; }
+    out.set(dst.subarray(ihdr.end), p);
+    return out;
+  }
+
   // ---- exports ----
   const api = {
     isImage, baseName, naturalCompare, parseH3Name, pairFolder, imageCount, anyImage, countLabel, filterTree,
     detectEol, toEol, splitH3, joinH3, h3Bodies, setH3Bodies,
+    padSnippet, DEFAULT_WORDS, parseWords, mergeWords, wordsJson, copyPngText,
   };
   root.CaptionCore = api;
   if (typeof module === "object" && module.exports) module.exports = api;
