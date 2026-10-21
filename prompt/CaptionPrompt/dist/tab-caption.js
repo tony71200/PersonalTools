@@ -153,6 +153,7 @@
       return true;
     }
     $("capSave").onclick = save;
+    window.CaptionWords.init({ editor: $("capEd"), log });
 
     // ---- folder ----
     async function open(h) {
