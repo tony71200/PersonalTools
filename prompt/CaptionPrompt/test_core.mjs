@@ -56,4 +56,99 @@ assert.equal(C.countLabel(tree.dirs[0].dirs[0]), "1 ảnh");
 assert.deepEqual([...C.filterTree(tree, 3).matched].sort(), ["day_52_1/Ryo", "day_53_1/Ryo"]); // i === N matches
 assert.equal(C.filterTree(tree, 0).matched.size, 0); // 0-image folders never match
 
+// --- H3 split / join ---
+// Layout 1: plain headings (like day_52_1)
+const H3_PLAIN =
+  "CHARACTER & SCENE DEFINITION\r\n\r\n" +
+  "<Subject 1> A man.\r\n\r\n[reference generation] He smiles.\r\n" +
+  "\r\nSHOT STRUCTURE — MINIMAX H3\r\n\r\n" +
+  "[SHOT 01 | DURATION: 10s | PRIMARY CAMERA SETUP: close-up]\r\nHe waves.\r\n\r\n" +
+  "[SHOT 02 | DURATION: 10s | PRIMARY CAMERA SETUP: wide]\r\nHe leaves.\r\n";
+// Layout 2: markdown headings with --- (like day_53_1 sfw / nsfw_v2)
+const H3_MD =
+  "# CHARACTER & SCENE DEFINITION\r\n\r\n" +
+  "**summary:**\r\n\r\nA man dances.\r\n" +
+  "\r\n---\r\n\r\n# SHOT STRUCTURE — MINIMAX H3\r\n\r\n" +
+  "[SHOT 01 | DURATION: 8s | PRIMARY CAMERA SETUP: dolly]\r\n\r\nStep one.\r\n\r\n---\r\n\r\n" +
+  "[SHOT 02 | DURATION: 7s | PRIMARY CAMERA SETUP: medium]\r\n\r\nStep two.\r\n";
+// Layout 3: no headings (like day_56_1/Rennoir2)
+const H3_BARE =
+  "subject_definitions:\r\n\r\nA swimmer.\r\n\r\nnon_diegetic_music:\r\n\r\nNONE\r\n" +
+  "\r\n" +
+  "[SHOT 01 | DURATION: 12s | PRIMARY CAMERA SETUP: mirror]\r\n\r\nsubject_definitions:\r\n\r\nSame swimmer.\r\n\r\nnon_diegetic_music:\r\n" +
+  "\r\n";
+
+assert.equal(C.detectEol(H3_PLAIN), "\r\n");
+assert.equal(C.detectEol("a\nb"), "\n");
+assert.equal(C.toEol("a\r\nb\nc\rd", "\r\n"), "a\r\nb\r\nc\r\nd");
+assert.equal(C.toEol("a\r\nb", "\n"), "a\nb");
+
+{
+  const s = C.splitH3(H3_PLAIN);
+  assert.equal(s.recognized, true);
+  assert.equal(s.eol, "\r\n");
+  assert.deepEqual(s.parts, [
+    "CHARACTER & SCENE DEFINITION\r\n\r\n",
+    "<Subject 1> A man.\r\n\r\n[reference generation] He smiles.\r\n",
+    "\r\nSHOT STRUCTURE — MINIMAX H3\r\n\r\n",
+    "[SHOT 01 | DURATION: 10s | PRIMARY CAMERA SETUP: close-up]\r\nHe waves.\r\n\r\n[SHOT 02 | DURATION: 10s | PRIMARY CAMERA SETUP: wide]\r\nHe leaves.\r\n",
+    "",
+  ]);
+  assert.deepEqual(C.h3Bodies(s), [
+    "<Subject 1> A man.\n\n[reference generation] He smiles.",
+    "[SHOT 01 | DURATION: 10s | PRIMARY CAMERA SETUP: close-up]\nHe waves.\n\n[SHOT 02 | DURATION: 10s | PRIMARY CAMERA SETUP: wide]\nHe leaves.",
+  ]);
+}
+{
+  const s = C.splitH3(H3_MD);
+  assert.deepEqual(s.parts.slice(0, 3), [
+    "# CHARACTER & SCENE DEFINITION\r\n\r\n",
+    "**summary:**\r\n\r\nA man dances.\r\n",
+    "\r\n---\r\n\r\n# SHOT STRUCTURE — MINIMAX H3\r\n\r\n",
+  ]);
+  assert.ok(s.parts[3].includes("\r\n---\r\n"), "--- between shots stays in body 2");
+}
+{
+  const s = C.splitH3(H3_BARE);
+  assert.equal(s.recognized, true);
+  assert.equal(s.parts[0], "");
+  assert.equal(s.parts[1], "subject_definitions:\r\n\r\nA swimmer.\r\n\r\nnon_diegetic_music:\r\n\r\nNONE\r\n");
+  assert.equal(s.parts[2], "\r\n");
+  assert.ok(s.parts[3].startsWith("[SHOT 01"));
+  assert.equal(s.parts[4], "\r\n");
+}
+// round trip, byte for byte, for every layout
+for (const t of [H3_PLAIN, H3_MD, H3_BARE]) {
+  const s = C.splitH3(t);
+  assert.equal(C.joinH3(s.parts), t);
+  const [b1, b2] = C.h3Bodies(s);
+  assert.equal(C.setH3Bodies(s, b1, b2), t);
+}
+// editing one body changes only that body
+{
+  const s = C.splitH3(H3_PLAIN);
+  const out = C.setH3Bodies(s, "<Subject 1> A woman.\n\n[reference generation] She smiles.", C.h3Bodies(s)[1]);
+  assert.equal(out, H3_PLAIN.replace("A man.", "A woman.").replace("He smiles.", "She smiles."));
+}
+{
+  const s = C.splitH3(H3_MD);
+  const out = C.setH3Bodies(s, C.h3Bodies(s)[0], C.h3Bodies(s)[1].replace("Step two.", "Step 2."));
+  assert.equal(out, H3_MD.replace("Step two.", "Step 2."));
+}
+// a file with no final newline stays without one
+{
+  const t = "CHARACTER & SCENE DEFINITION\nA\nSHOT STRUCTURE\n[SHOT 01]\nB";
+  const s = C.splitH3(t);
+  assert.equal(C.setH3Bodies(s, ...C.h3Bodies(s)), t);
+  assert.equal(C.setH3Bodies(s, "A", "[SHOT 01]\nC"), "CHARACTER & SCENE DEFINITION\nA\nSHOT STRUCTURE\n[SHOT 01]\nC");
+}
+// unrecognized text: everything in body 1, still round-trips
+{
+  const t = "Just a note.\r\nSecond line.\r\n\r\n";
+  const s = C.splitH3(t);
+  assert.equal(s.recognized, false);
+  assert.deepEqual(s.parts, ["", "Just a note.\r\nSecond line.\r\n", "", "", "\r\n"]);
+  assert.equal(C.setH3Bodies(s, ...C.h3Bodies(s)), t);
+  assert.equal(C.joinH3(C.splitH3("").parts), "");
+}
 console.log("core tests passed");
