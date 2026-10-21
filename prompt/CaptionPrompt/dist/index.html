@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="vi" data-theme="sunny">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caption Prompt</title>
+<script>/* apply the saved theme before first paint */ try { if (JSON.parse(localStorage.getItem("captionPrompt.v1")).theme === "sky") document.documentElement.dataset.theme = "sky"; } catch (e) {}</script>
+<style>
+:root{
+  --serif:"Sitka Heading","Sitka Text",Cambria,Georgia,serif;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,monospace;
+  --r-lg:16px; --r:12px; --r-sm:9px;
+}
+[data-theme=sunny]{
+  --bg:#FFF6E9; --card:#FFFFFF; --ink:#2A2140; --ink-2:#5B5170; --muted:#8C8299; --line:#F1DFC6;
+  --primary:#FF6A3D; --primary-2:#FF9A3D; --on-primary:#FFFFFF; --accent:#12B3A3; --accent-wash:#DDF6F2;
+  --danger:#E5384F; --danger-wash:#FFE3E6; --shadow:43 25 10;
+}
+[data-theme=sky]{
+  --bg:#EEF6FF; --card:#FFFFFF; --ink:#13233F; --ink-2:#3E5070; --muted:#7486A3; --line:#D5E4F7;
+  --primary:#2E6BFF; --primary-2:#22B8FF; --on-primary:#FFFFFF; --accent:#FFB020; --accent-wash:#FFF1D6;
+  --danger:#E5384F; --danger-wash:#FFE3E6; --shadow:20 50 120;
+}
+:root{
+  --sh-1:0 1px 2px rgb(var(--shadow)/.08),0 2px 6px rgb(var(--shadow)/.06);
+  --sh-2:0 2px 4px rgb(var(--shadow)/.06),0 10px 24px -6px rgb(var(--shadow)/.16);
+  --sh-3:0 4px 10px rgb(var(--shadow)/.08),0 20px 40px -12px rgb(var(--shadow)/.28);
+  --inset:inset 0 2px 4px rgb(var(--shadow)/.06);
+  --ring:0 0 0 2px var(--card),0 0 0 5px color-mix(in srgb,var(--primary) 70%,transparent);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}
+body{display:flex;flex-direction:column;overflow:hidden}
+button,input,textarea,select{font:inherit;color:inherit}
+button:disabled,textarea:disabled,input:disabled{opacity:.45;cursor:default}
+button:disabled{pointer-events:none}
+
+/* masthead */
+.mast{display:flex;align-items:center;gap:16px;padding:18px 32px}
+.logo{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;color:var(--on-primary);font:700 20px var(--serif);background:linear-gradient(135deg,var(--primary),var(--primary-2));box-shadow:var(--sh-2)}
+.mast h1{font:700 28px/1 var(--serif);margin:0;letter-spacing:-.01em}
+.mast .sub{color:var(--muted);font-size:12.5px;margin-top:4px}
+.spacer{flex:1}
+.themes{display:inline-flex;gap:4px;padding:4px;border-radius:999px;background:var(--card);box-shadow:var(--sh-1)}
+.themes button{border:0;border-radius:999px;padding:6px 14px;font-size:12px;font-weight:650;cursor:pointer;background:transparent;color:var(--ink-2);transition:background .15s,color .15s}
+.themes button[aria-pressed=true],.themes button[aria-selected=true]{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:var(--on-primary);box-shadow:var(--sh-1)}
+.themes button:focus-visible{outline:none;box-shadow:var(--ring)}
+
+/* controls */
+.btn{height:38px;border:0;border-radius:var(--r);padding:0 16px;font-weight:650;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap;background:var(--card);color:var(--ink);box-shadow:var(--sh-1),inset 0 0 0 1px var(--line);transition:transform .14s,box-shadow .14s,background .14s}
+.btn:hover{transform:translateY(-1px);box-shadow:var(--sh-2),inset 0 0 0 1px var(--line)}
+.btn:active{transform:translateY(1px) scale(.98);box-shadow:var(--sh-1)}
+.btn:focus-visible{outline:none;box-shadow:var(--sh-1),var(--ring)}
+.btn.primary,.btn[aria-pressed=true]{color:var(--on-primary);background:linear-gradient(135deg,var(--primary),var(--primary-2));box-shadow:var(--sh-2),inset 0 1px 0 rgb(255 255 255/.35)}
+.btn.primary:hover{box-shadow:var(--sh-3),inset 0 1px 0 rgb(255 255 255/.35)}
+.btn.danger{color:var(--danger);background:transparent;box-shadow:none}
+.btn.danger:hover{background:var(--danger-wash)}
+.btn.primary:focus-visible,.btn.danger:focus-visible{outline:none;box-shadow:var(--sh-2),var(--ring)}
+.btn.icon{width:38px;padding:0}
+.btn.sm{height:30px;padding:0 12px;font-size:12px}
+.panel{background:var(--card);border-radius:var(--r-lg);box-shadow:var(--sh-2);padding:18px}
+.label{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);margin-bottom:8px}
+.label em{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400;color:var(--muted)}
+.fname{text-transform:none;letter-spacing:0;font:500 12px var(--mono);color:var(--muted)}
+.field{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-2)}
+.field select,.numin,.folderrow input{height:36px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--inset);outline:none;min-width:0;transition:border-color .15s,box-shadow .15s}
+.field select{min-width:220px;font-weight:600;cursor:pointer}
+.numin{width:72px;font-family:var(--mono)}
+.field select:focus,.numin:focus{border-color:var(--primary);box-shadow:var(--inset),var(--ring)}
+textarea{width:100%;resize:vertical;padding:14px 16px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);box-shadow:var(--inset);font:13px/1.6 var(--mono);outline:none;transition:border-color .15s,box-shadow .15s,background .15s}
+textarea:focus{background:var(--card);border-color:var(--primary);box-shadow:var(--inset),var(--ring)}
+.empty{color:var(--muted);font-size:13px;margin:12px 2px}
+.dirty{color:var(--primary);font-size:16px;line-height:1}
+.tag{display:inline-flex;font-size:11px;font-weight:650;padding:1px 8px;border-radius:999px;background:var(--accent-wash);color:color-mix(in srgb,var(--accent) 65%,var(--ink))}
+.tag.nsfw{background:var(--danger-wash);color:var(--danger)}
+.tag.cnt{background:var(--bg);color:var(--muted);font-weight:500}
+
+/* tab layout */
+.tab{flex:1;min-height:0;display:grid;grid-template-columns:340px minmax(0,1fr);gap:20px;padding:0 32px 24px}
+.side{display:flex;flex-direction:column;gap:10px;min-height:0}
+.main{display:flex;flex-direction:column;gap:14px;min-height:0;overflow:auto}
+.folderrow{display:flex;gap:8px}
+.folderrow input{flex:1;font-weight:600;color:var(--ink-2)}
+.summary{font-size:12px;color:var(--muted);min-height:18px}
+
+/* tree */
+.tree{flex:1;min-height:0;overflow:auto;outline:none;margin:0 -8px;padding:2px 8px;border-radius:var(--r)}
+.tree:focus-visible{box-shadow:var(--ring)}
+.trow{display:flex;align-items:center;gap:7px;padding:5px 8px 5px calc(8px + var(--d) * 16px);border-radius:var(--r-sm);cursor:pointer;font-size:13px;white-space:nowrap}
+.trow:hover{background:var(--bg)}
+.trow.folder{font-weight:650;color:var(--ink-2)}
+.trow .tw{width:12px;flex:none;text-align:center;color:var(--muted)}
+.trow .nm{overflow:hidden;text-overflow:ellipsis}
+.trow .aside{margin-left:auto;flex:none}
+.trow.muted{color:var(--muted);font-weight:400}
+.trow.hl{background:var(--accent-wash)}
+.trow.sel{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:var(--on-primary)}
+.trow.sel .tw{color:var(--on-primary)}
+.trow.sel .tag{background:rgb(255 255 255/.22);color:#fff}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
+.dot.no{background:none;box-shadow:inset 0 0 0 1.5px var(--muted)}
+
+/* Tab 1: viewer, editor, snippets, logger */
+.vbar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.zoomv{font:600 12px var(--mono);min-width:48px;text-align:center;color:var(--ink-2)}
+.vname{font:12px var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.viewer{position:relative;height:55vh;min-height:240px;overflow:hidden;border-radius:var(--r);background:var(--bg);box-shadow:var(--inset);cursor:grab;touch-action:none;user-select:none}
+.viewer.panning{cursor:grabbing}
+.viewer.cropping{cursor:crosshair}
+.viewer img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;pointer-events:none}
+.viewer img:not([src]){display:none}
+.vhint{position:absolute;inset:0;display:grid;place-items:center;margin:0;color:var(--muted);font-size:13px}
+.croprect{position:absolute;border:2px dashed var(--primary);box-shadow:0 0 0 9999px rgb(0 0 0/.38);cursor:move}
+.csize{position:absolute;left:-2px;top:-26px;font:600 11px var(--mono);padding:2px 7px;border-radius:6px;background:var(--primary);color:var(--on-primary);white-space:nowrap}
+.h{position:absolute;width:12px;height:12px;margin:-7px 0 0 -7px;background:var(--card);border:2px solid var(--primary);border-radius:3px}
+.h[data-h=nw]{left:0;top:0;cursor:nwse-resize}.h[data-h=n]{left:50%;top:0;cursor:ns-resize}.h[data-h=ne]{left:100%;top:0;cursor:nesw-resize}.h[data-h=e]{left:100%;top:50%;cursor:ew-resize}
+.h[data-h=se]{left:100%;top:100%;cursor:nwse-resize}.h[data-h=s]{left:50%;top:100%;cursor:ns-resize}.h[data-h=sw]{left:0;top:100%;cursor:nesw-resize}.h[data-h=w]{left:0;top:50%;cursor:ew-resize}
+.cropbar{position:absolute;right:12px;bottom:12px;display:flex;gap:8px}
+#capEd{min-height:120px}
+.chips{display:flex;align-items:flex-start;gap:8px;margin-top:10px}
+.chiplist{display:flex;flex-wrap:wrap;gap:6px;flex:1}
+.chip{border:0;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:650;cursor:pointer;background:var(--accent-wash);color:color-mix(in srgb,var(--accent) 65%,var(--ink));transition:transform .12s}
+.chip:hover{transform:translateY(-1px)}
+.chip:focus-visible{outline:none;box-shadow:var(--ring)}
+.wordsnote{margin-top:8px;font-size:12px;color:var(--muted)}
+.log{height:120px;overflow:auto;font:12px/1.6 var(--mono);padding:8px 12px;border-radius:var(--r);background:var(--bg);box-shadow:var(--inset)}
+.ll.info{color:var(--ink-2)}.ll.ok{color:color-mix(in srgb,var(--accent) 75%,var(--ink))}.ll.err{color:var(--danger)}
+.wordlist{max-height:50vh;overflow:auto}
+.wordrow,.wordadd{display:grid;grid-template-columns:120px minmax(0,1fr) auto;gap:8px;margin-bottom:8px}
+.wordrow input,.wordadd input{height:36px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--inset);font:12.5px var(--mono);outline:none;min-width:0}
+.wordrow input:focus,.wordadd input:focus{border-color:var(--primary);box-shadow:var(--inset),var(--ring)}
+
+/* Tab 2 */
+.mmtop{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mmname{font:12px var(--mono);color:var(--muted)}
+.warn{margin:0;padding:8px 12px;border-radius:var(--r);background:var(--danger-wash);color:var(--danger);font-size:12.5px}
+.mmbody{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px}
+.mmimg img{width:100%;max-height:72vh;object-fit:contain;border-radius:var(--r);background:var(--bg);display:block}
+.mmeds{display:flex;flex-direction:column;gap:14px}
+.mmeds textarea{height:32vh;min-height:180px}
+.secr{display:flex;align-items:center;gap:10px}
+
+/* Tab 3 */
+.filtrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.gridhead{display:flex;align-items:baseline;gap:10px}
+.gridhead h2{font:700 18px/1.2 var(--serif);margin:0;word-break:break-all}
+.gridhead span{font-size:12px;color:var(--muted)}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+.thumb{margin:0}
+.thumb .ph{aspect-ratio:3/4;border-radius:var(--r);background:var(--bg);box-shadow:var(--inset);overflow:hidden}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb img:not([src]){visibility:hidden}
+.thumb.bad .ph{background:var(--danger-wash)}
+.thumb figcaption{font:11px var(--mono);color:var(--ink-2);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* dialogs, toast */
+dialog{width:560px;max-width:calc(100vw - 32px);padding:0;border:0;border-radius:20px;background:var(--card);color:var(--ink);box-shadow:var(--sh-3)}
+dialog[open]{animation:pop .24s cubic-bezier(.2,.9,.3,1.2)}
+dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
+.dlg{padding:20px 22px 22px;margin:0}
+.dlghead{display:flex;justify-content:space-between;align-items:center}
+.dlghead h3{font:700 18px/1.2 var(--serif);margin:0}
+.dlg p{margin:6px 0 14px;font-size:12.5px;color:var(--muted)}
+.dlg p.askmsg{font-size:14px;color:var(--ink);margin:0}
+.dlgbtns{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:16px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,90px);opacity:0;pointer-events:none;max-width:calc(100vw - 32px);background:var(--ink);color:var(--card);padding:10px 18px;border-radius:999px;font-size:13px;box-shadow:var(--sh-3);transition:transform .25s cubic-bezier(.2,.9,.3,1.2),opacity .2s}
+.toast.show{transform:translate(-50%,0);opacity:1}
+
+@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:900px){
+  body{overflow:auto}
+  .mast{flex-wrap:wrap;padding:16px}
+  .tab{grid-template-columns:1fr;padding:0 16px 16px}
+  .tree{max-height:40vh}
+  .mmbody{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header class="mast">
+  <div class="logo" aria-hidden="true">C</div>
+  <div>
+    <h1>Caption Prompt</h1>
+    <div class="sub">Caption, MiniMax H3 và lọc folder ảnh</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="themes" role="tablist" aria-label="Tab" id="tabsw">
+    <button role="tab" data-tab="caption">Captioned</button><button role="tab" data-tab="minimax">MiniMax H3</button><button role="tab" data-tab="filter">Filt and Find</button>
+  </div>
+  <div class="themes" role="group" aria-label="Theme" id="themesw">
+    <button data-theme-set="sunny">Sunny</button><button data-theme-set="sky">Sky</button>
+  </div>
+</header>
+
+<!-- Tab 1: Captioned -->
+<main class="tab" id="tab-caption" hidden>
+  <aside class="panel side">
+    <div class="folderrow"><input class="dirname" readonly placeholder="Chưa chọn thư mục" aria-label="Thư mục"><button class="btn primary pick">Chọn thư mục</button></div>
+    <button class="btn reopen" hidden></button>
+    <div class="summary" id="capSummary"></div>
+    <div class="tree" id="capTree" tabindex="0" role="tree" aria-label="Ảnh"></div>
+  </aside>
+  <section class="main">
+    <div class="panel">
+      <div class="vbar">
+        <button class="btn icon" id="capZoomOut" aria-label="Thu nhỏ">−</button>
+        <span class="zoomv" id="capZoom">100%</span>
+        <button class="btn icon" id="capZoomIn" aria-label="Phóng to">+</button>
+        <button class="btn" id="capFit">Vừa khung</button>
+        <span class="vname" id="capImgName"></span>
+        <div class="spacer"></div>
+        <button class="btn" id="capCrop" aria-pressed="false">✂ Crop</button>
+      </div>
+      <div class="viewer" id="capViewer">
+        <img id="capImg" alt="" draggable="false">
+        <div class="croprect" id="capRect" hidden>
+          <span class="csize" id="capSize"></span>
+          <i class="h" data-h="nw"></i><i class="h" data-h="n"></i><i class="h" data-h="ne"></i><i class="h" data-h="e"></i><i class="h" data-h="se"></i><i class="h" data-h="s"></i><i class="h" data-h="sw"></i><i class="h" data-h="w"></i>
+        </div>
+        <div class="cropbar" id="capCropBar" hidden><button class="btn" id="capCropCancel">Huỷ</button><button class="btn primary" id="capCropApply">Áp dụng</button></div>
+        <p class="vhint" id="capHint">Chọn một ảnh ở cây bên trái</p>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="label"><span>Prompt <span class="fname" id="capTxtName"></span> <span class="dirty" id="capDirty" hidden>●</span></span><button class="btn primary sm" id="capSave">Lưu</button></div>
+      <textarea id="capEd" rows="5" placeholder="Chưa có file txt, sẽ tạo khi lưu" disabled aria-label="Prompt"></textarea>
+      <div class="chips"><div class="chiplist" id="capChips"></div><button class="btn icon" id="capWordsOpen" aria-label="Sửa từ mẫu" title="Sửa từ mẫu">⚙</button></div>
+      <div class="wordsnote" id="capWordsNote" hidden></div>
+    </div>
+    <div class="panel">
+      <div class="label"><span>Logger</span><button class="btn danger sm" id="capLogClear">Xoá log</button></div>
+      <div class="log" id="capLog" role="log" aria-live="polite"></div>
+    </div>
+  </section>
+</main>
+
+<!-- Tab 2: MiniMax H3 -->
+<main class="tab" id="tab-minimax" hidden>
+  <aside class="panel side">
+    <div class="folderrow"><input class="dirname" readonly placeholder="Chưa chọn thư mục" aria-label="Thư mục"><button class="btn primary pick">Chọn thư mục</button></div>
+    <button class="btn reopen" hidden></button>
+    <div class="summary" id="mmSummary"></div>
+    <div class="tree" id="mmTree" tabindex="0" role="tree" aria-label="Ảnh"></div>
+  </aside>
+  <section class="main panel">
+    <div class="mmtop">
+      <label class="field" id="mmVarWrap" hidden>Bản <select id="mmVar"></select></label>
+      <span id="mmTag"></span>
+      <span class="mmname" id="mmName"></span>
+      <div class="spacer"></div>
+      <span class="dirty" id="mmDirty" hidden>●</span>
+      <button class="btn primary" id="mmSave" disabled>Lưu</button>
+    </div>
+    <p class="warn" id="mmWarn" hidden>Không nhận ra cấu trúc H3, cả file nằm ở ô 1</p>
+    <p class="empty" id="mmEmpty">Chọn một ảnh ở cây bên trái</p>
+    <div class="mmbody" id="mmBody" hidden>
+      <div class="mmimg"><img id="mmImg" alt=""></div>
+      <div class="mmeds">
+        <div><div class="label"><span>CHARACTER &amp; SCENE DEFINITION</span><span class="secr"><em id="mmCount1"></em><button class="btn sm" id="mmCopy1">Copy</button></span></div><textarea id="mmEd1" aria-label="Character and scene definition"></textarea></div>
+        <div><div class="label"><span>SHOT STRUCTURE — MINIMAX H3</span><span class="secr"><em id="mmCount2"></em><button class="btn sm" id="mmCopy2">Copy</button></span></div><textarea id="mmEd2" aria-label="Shot structure"></textarea></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Tab 3: Filt and Find -->
+<main class="tab" id="tab-filter" hidden>
+  <aside class="panel side">
+    <div class="folderrow"><input class="dirname" readonly placeholder="Chưa chọn thư mục" aria-label="Thư mục"><button class="btn primary pick">Chọn thư mục</button></div>
+    <button class="btn reopen" hidden></button>
+    <div class="filtrow"><label class="field">Số ảnh ≤ <input type="number" class="numin" id="fltN" min="1" step="1" value="5"></label><button class="btn primary" id="fltGo">Filt</button><button class="btn" id="fltClear">Bỏ lọc</button></div>
+    <div class="summary" id="fltSummary"></div>
+    <div class="tree" id="fltTree" tabindex="0" role="tree" aria-label="Folder"></div>
+    <p class="empty" id="fltNone" hidden></p>
+  </aside>
+  <section class="main panel">
+    <div class="gridhead"><h2 id="fltPath"></h2><span id="fltCount"></span></div>
+    <p class="empty" id="fltEmpty">Chọn một folder ở cây bên trái</p>
+    <div class="thumbs" id="fltGrid"></div>
+  </section>
+</main>
+
+<dialog id="askDlg" aria-label="Xác nhận"><form method="dialog" class="dlg"><p class="askmsg" id="askMsg"></p><div class="dlgbtns" id="askBtns"></div></form></dialog>
+
+<dialog id="wordsDlg" aria-label="Từ mẫu">
+  <div class="dlg">
+    <div class="dlghead"><h3>Từ mẫu</h3><button class="btn icon" id="wordsClose" aria-label="Đóng">&times;</button></div>
+    <p id="wordsFileInfo"></p>
+    <div class="wordlist" id="wordsList"></div>
+    <div class="wordadd"><input id="wordsNewLabel" placeholder="Nhãn" aria-label="Nhãn mới"><input id="wordsNewText" placeholder="Nội dung chèn" aria-label="Nội dung mới"><button class="btn" id="wordsAdd">Thêm</button></div>
+    <div class="dlgbtns"><button class="btn" id="wordsLink">Liên kết file JSON</button><button class="btn" id="wordsCreate">Tạo file mới</button><button class="btn" id="wordsImport">Import JSON</button></div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status"><span id="toastMsg"></span></div>
+
+<script src="core.js"></script>
+<script src="fs.js"></script>
+<script src="ui.js"></script>
+<script>
+"use strict";
+(function () {
+  const KEY = "captionPrompt.v1", TABS = ["caption", "minimax", "filter"];
+  const { $ } = window.CaptionUI;
+  const st = { theme: "sunny", tab: "caption" };
+  try { Object.assign(st, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) { /* blocked or unreadable: defaults */ }
+  if (st.theme !== "sky") st.theme = "sunny";
+  if (!TABS.includes(st.tab)) st.tab = "caption";
+  const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { /* not saved, harmless */ } };
+
+  function apply() {
+    document.documentElement.dataset.theme = st.theme;
+    document.querySelectorAll("[data-theme-set]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.themeSet === st.theme)));
+    document.querySelectorAll("[data-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === st.tab)));
+    for (const t of TABS) $("tab-" + t).hidden = t !== st.tab;
+  }
+  $("themesw").addEventListener("click", e => { const b = e.target.closest("[data-theme-set]"); if (b) { st.theme = b.dataset.themeSet; persist(); apply(); } });
+  $("tabsw").addEventListener("click", e => { const b = e.target.closest("[data-tab]"); if (b) { st.tab = b.dataset.tab; persist(); apply(); } });
+
+  const mods = { caption: window.CaptionTab, minimax: window.MiniMaxTab, filter: window.FilterTab };
+  const tabs = window.tabs = {};
+  for (const t of TABS) if (mods[t]) tabs[t] = mods[t].init($("tab-" + t));
+
+  addEventListener("keydown", e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); tabs[st.tab]?.save?.(); }
+  });
+  addEventListener("beforeunload", e => {
+    if (Object.values(tabs).some(t => t.isDirty && t.isDirty())) { e.preventDefault(); e.returnValue = ""; }
+  });
+  apply();
+})();
+</script>
+</body>
+</html>
