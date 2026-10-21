@@ -94,7 +94,7 @@ An agent cannot click the native folder picker, so UI checks use the browser's p
    ```
 
 4. Open a tab on the seed with `await tabs.<caption|minimax|filter>.open(seedRoot)`, then check with screenshots, `read_page`, `find`, clicks, and `readSeed("PostIG/...")`.
-5. **Answer `<dialog>` prompts (`askDlg`) with real clicks** (the browser `computer` tool on a `find` ref), not `button.click()` from a script. A scripted click closes the dialog, but its `close` event may not arrive, so the awaiting code never continues. Wait about 1s after the click before reading results; the crop write can take a moment.
+5. `<dialog>` prompts (`askDlg`) resolve on the button click itself (`ui.js` listens for clicks on `#askBtns`), so scripted `button.click()` works. During execution it turned out the dialog's `close` event can lag for seconds while the pane is hidden, which is why `ask()` no longer waits for it. Wait about 1s after confirming a crop before reading results.
 6. The wheel over the image viewer zooms the image (by design). To scroll the right column, scroll outside the viewer or set `document.querySelector("#tab-caption .main").scrollTop = 0`.
 7. Check the console has no errors. Stop the server when the task is done.
 

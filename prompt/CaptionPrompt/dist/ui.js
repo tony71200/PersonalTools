@@ -14,13 +14,17 @@
   }
 
   // Resolves with the clicked button's id, or "cancel" on Esc.
+  // Button clicks resolve at once: the dialog's "close" event can lag while the page is hidden.
   function ask(msg, buttons) {
     return new Promise(res => {
       const d = $("askDlg");
+      let done = false;
+      const finish = v => { if (!done) { done = true; res(v); } };
       $("askMsg").textContent = msg;
       $("askBtns").innerHTML = buttons.map(b => `<button class="btn ${b.kind || ""}" value="${esc(b.id)}">${esc(b.label)}</button>`).join("");
+      $("askBtns").onclick = e => { const b = e.target.closest("button"); if (b) finish(b.value); };
       d.returnValue = "";
-      d.onclose = () => res(d.returnValue || "cancel");
+      d.onclose = () => finish(d.returnValue || "cancel");
       d.showModal();
     });
   }
