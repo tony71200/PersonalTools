@@ -118,7 +118,9 @@ textarea:focus{background:var(--card);border-color:var(--primary);box-shadow:var
 .h[data-h=nw]{left:0;top:0;cursor:nwse-resize}.h[data-h=n]{left:50%;top:0;cursor:ns-resize}.h[data-h=ne]{left:100%;top:0;cursor:nesw-resize}.h[data-h=e]{left:100%;top:50%;cursor:ew-resize}
 .h[data-h=se]{left:100%;top:100%;cursor:nwse-resize}.h[data-h=s]{left:50%;top:100%;cursor:ns-resize}.h[data-h=sw]{left:0;top:100%;cursor:nesw-resize}.h[data-h=w]{left:0;top:50%;cursor:ew-resize}
 .cropbar{position:absolute;right:12px;bottom:12px;display:flex;gap:8px}
-#capEd{min-height:120px}
+.caprow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.capprompt{display:flex;flex-direction:column}
+#capEd{flex:1;min-height:120px;resize:none}
 .chips{display:flex;align-items:flex-start;gap:8px;margin-top:10px}
 .chiplist{display:flex;flex-wrap:wrap;gap:6px;flex:1}
 .chip{border:0;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:650;cursor:pointer;background:var(--accent-wash);color:color-mix(in srgb,var(--accent) 65%,var(--ink));transition:transform .12s}
@@ -170,6 +172,9 @@ dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
 
 @keyframes pop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:1100px){
+  .caprow{grid-template-columns:1fr}
+}
 @media (max-width:900px){
   body{overflow:auto}
   .mast{flex-wrap:wrap;padding:16px}
@@ -206,6 +211,7 @@ dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
     <div class="tree" id="capTree" tabindex="0" role="tree" aria-label="Ảnh"></div>
   </aside>
   <section class="main">
+    <div class="caprow">
     <div class="panel">
       <div class="vbar">
         <button class="btn icon" id="capZoomOut" aria-label="Thu nhỏ">−</button>
@@ -226,11 +232,12 @@ dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
         <p class="vhint" id="capHint">Chọn một ảnh ở cây bên trái</p>
       </div>
     </div>
-    <div class="panel">
+    <div class="panel capprompt">
       <div class="label"><span>Prompt <span class="fname" id="capTxtName"></span> <span class="dirty" id="capDirty" hidden>●</span></span><button class="btn primary sm" id="capSave">Lưu</button></div>
       <textarea id="capEd" rows="5" placeholder="Chưa có file txt, sẽ tạo khi lưu" disabled aria-label="Prompt"></textarea>
       <div class="chips"><div class="chiplist" id="capChips"></div><button class="btn icon" id="capWordsOpen" aria-label="Sửa từ mẫu" title="Sửa từ mẫu">⚙</button></div>
       <div class="wordsnote" id="capWordsNote" hidden></div>
+    </div>
     </div>
     <div class="panel">
       <div class="label"><span>Logger</span><button class="btn danger sm" id="capLogClear">Xoá log</button></div>
