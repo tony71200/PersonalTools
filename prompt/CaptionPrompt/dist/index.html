@@ -173,7 +173,8 @@ dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
 @media (max-width:900px){
   body{overflow:auto}
   .mast{flex-wrap:wrap;padding:16px}
-  .tab{grid-template-columns:1fr;padding:0 16px 16px}
+  .tab{flex:none;grid-template-columns:1fr;padding:0 16px 16px}
+  .main{overflow:visible}
   .tree{max-height:40vh}
   .mmbody{grid-template-columns:1fr}
 }
@@ -301,6 +302,7 @@ dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
 <script src="core.js"></script>
 <script src="fs.js"></script>
 <script src="ui.js"></script>
+<script src="tab-filter.js"></script>
 <script>
 "use strict";
 (function () {
