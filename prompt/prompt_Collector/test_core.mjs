@@ -49,6 +49,7 @@ assert.equal(C.parseState(null).corrupt, false);
 assert.deepEqual(C.parseState(null).state, {
   version: 1, items: [], keywords: C.DEFAULT_KEYWORDS, perFile: 50, selected: 0,
   triggers: C.DEFAULT_TRIGGERS, activeTrigger: "", theme: "sunny",
+  replacements: [], suffix: { text: C.DEFAULT_SUFFIX, on: false },
 });
 assert.equal(C.parseState("{not json").corrupt, true);
 assert.equal(C.parseState(JSON.stringify({ version: 2, items: [], keywords: [] })).corrupt, true);
@@ -56,7 +57,8 @@ assert.equal(C.parseState(JSON.stringify({ version: 1, items: [], keywords: [], 
 {
   const s = { version: 1, items: [{ id: "a", raw: "r", text: "t", removed: [], edited: false, addedAt: "x" }], keywords: ["k"], perFile: 7, selected: 0 };
   assert.deepEqual(C.parseState(JSON.stringify(s)), {
-    state: { ...s, triggers: C.DEFAULT_TRIGGERS, activeTrigger: "", theme: "sunny" }, corrupt: false,
+    state: { ...s, triggers: C.DEFAULT_TRIGGERS, activeTrigger: "", theme: "sunny",
+      replacements: [], suffix: { text: C.DEFAULT_SUFFIX, on: false } }, corrupt: false,
   });
 }
 
@@ -169,6 +171,68 @@ assert.deepEqual(C.buildFiles("txt", [], { perFile: 5, keywords: [] }).files, []
   assert.equal(json.prompts[1].index, 2);
   assert.equal(json.prompts[1].body, "An Asian young man\nin rain.");
   assert.equal(JSON.parse(C.buildFiles("json", [mk("a", 0)], { perFile: 5, keywords: [], trigger: { ...IV, token: " " }, now: day }).files[0].content).trigger, null);
+}
+
+// --- find / replace (whole word, case-insensitive) ---
+assert.equal(C.countWord("Man, the man and a woman. MAN!", "man"), 3);
+assert.equal(C.countWord("manly woman", "man"), 0);
+assert.equal(C.countWord("anything", "  "), 0);
+assert.equal(C.countWord("Ảnh đẹp, ảnh xấu, ảnhh", "ảnh"), 2);          // Vietnamese letters are word characters
+assert.equal(C.countWord("50mm lens, f/1.8 aperture", "f/1.8"), 1);     // punctuation inside the term is literal
+assert.equal(C.countWord("a+b (c)", "(c)"), 1);
+assert.deepEqual(C.findWord("man x man", "MAN", 0), { start: 0, end: 3 });
+assert.deepEqual(C.findWord("man x man", "man", 1), { start: 6, end: 9 });
+assert.deepEqual(C.findWord("man x man", "man", 7), { start: 0, end: 3 });  // wraps to the start
+assert.equal(C.findWord("woman", "man", 0), null);
+assert.deepEqual(C.replaceWord("The Gym, a gym-goer, gyms.", "gym", "studio"), { text: "The studio, a studio-goer, gyms.", count: 2 });
+assert.deepEqual(C.replaceWord("price $5", "$5", "$6"), { text: "price $6", count: 1 }); // "$" in replacement is literal
+assert.deepEqual(C.replaceWord("abc", "", "x"), { text: "abc", count: 0 });
+{
+  const pairs = [{ find: "uploaded photo", replace: "reference image" }, { find: "gym", replace: "studio" }, { find: "rain", replace: "snow" }, { find: " ", replace: "x" }];
+  const text = "Same face as the Uploaded Photo, in a gym. Another uploaded photo.";
+  assert.deepEqual(C.scanPairs(text, pairs), [
+    { index: 0, find: "uploaded photo", replace: "reference image", count: 2 },
+    { index: 1, find: "gym", replace: "studio", count: 1 },
+  ]);
+  assert.deepEqual(C.applyPairs(text, [pairs[0], pairs[1]]), {
+    text: "Same face as the reference image, in a studio. Another reference image.", count: 3,
+  });
+}
+assert.deepEqual(C.cleanPairs([{ find: " gym ", replace: " studio " }, { find: "", replace: "x" }, { find: "a" }, "junk"]),
+  [{ find: "gym", replace: "studio" }]);
+
+// --- suffix (export only) ---
+assert.match(C.DEFAULT_SUFFIX, /^White balance 5500K, 50mm lens, f\/1\.8 aperture\./);
+const SUF = { text: "50mm lens.", on: true };
+assert.equal(C.applySuffix("Portrait.", SUF), "Portrait. 50mm lens.");
+assert.equal(C.applySuffix("Portrait, rim light", SUF), "Portrait, rim light. 50mm lens.");
+assert.equal(C.applySuffix("Portrait.", { ...SUF, on: false }), "Portrait.");
+assert.equal(C.applySuffix("Portrait.", null), "Portrait.");
+assert.equal(C.applySuffix("Portrait.", { ...SUF, text: "   " }), "Portrait.");
+assert.equal(C.applySuffix("", SUF), "");
+assert.equal(C.applySuffix("Portrait. 50MM LENS.", SUF), "Portrait. 50MM LENS."); // never added twice
+assert.equal(C.applySuffix("Portrait.", { text: "50mm\n\nlens", on: true }), "Portrait. 50mm lens");
+// parseState keeps or repairs the new fields
+{
+  const v1 = { version: 1, items: [], keywords: [], perFile: 7, selected: 0 };
+  const ok = C.parseState(JSON.stringify({ ...v1, replacements: [{ find: "gym", replace: "studio" }], suffix: { text: "x.", on: true } })).state;
+  assert.deepEqual(ok.replacements, [{ find: "gym", replace: "studio" }]);
+  assert.deepEqual(ok.suffix, { text: "x.", on: true });
+  const bad = C.parseState(JSON.stringify({ ...v1, replacements: "x", suffix: { text: 5, on: "yes" } })).state;
+  assert.deepEqual(bad.replacements, []);
+  assert.deepEqual(bad.suffix, { text: C.DEFAULT_SUFFIX, on: false });
+}
+// buildFiles appends the suffix after the trigger, and reports it in JSON
+{
+  const IV = { id: "ivan", token: "Ivan_Ryo", description: "", already: [] };
+  const items = [mk("Close-up portrait", 0), mk("  ", 1)];
+  const txt = C.buildFiles("txt", items, { perFile: 50, keywords: [], trigger: IV, suffix: SUF, now: day });
+  assert.equal(txt.files[0].content, "Ivan_Ryo. Close-up portrait. 50mm lens.\n");
+  const json = JSON.parse(C.buildFiles("json", items, { perFile: 50, keywords: [], suffix: SUF, now: day }).files[0].content);
+  assert.equal(json.suffix, "50mm lens.");
+  assert.equal(json.prompts[0].text, "Close-up portrait. 50mm lens.");
+  assert.equal(json.prompts[0].body, "Close-up portrait");
+  assert.equal(JSON.parse(C.buildFiles("json", items, { perFile: 50, keywords: [], suffix: { ...SUF, on: false }, now: day }).files[0].content).suffix, null);
 }
 
 console.log("core: all checks passed");
