@@ -36,6 +36,28 @@ Không cần cài gì. Bạn chỉ cần:
 - **Trình duyệt:** Google Chrome hoặc Microsoft Edge bản mới. Firefox và Safari **không** chạy được, vì thiếu tính năng mở thư mục (File System Access API).
 - Node.js **không** cần để dùng app. Nó chỉ cần khi chạy test sau khi sửa code (xem cuối file).
 
+## Build ra folder `dist`
+
+App **không có bước build**. Thư mục `dist/` chính là mã nguồn và cũng là bản chạy được: sửa thẳng các file trong `dist/`, lưu lại, rồi tải lại trang (F5) là thấy thay đổi.
+
+Muốn "đóng gói" để đem sang máy khác:
+
+1. (Nên làm) Chạy test để chắc logic không hỏng, nếu máy có Node.js 22 trở lên:
+
+   ```bash
+   cd prompt/CaptionPrompt
+   node test_core.mjs
+   ```
+
+2. Chép nguyên thư mục `dist/` (đủ mọi file liệt kê ở trên) sang máy kia, hoặc nén thành file zip bằng PowerShell:
+
+   ```powershell
+   cd prompt\CaptionPrompt
+   Compress-Archive -Path dist -DestinationPath CaptionPrompt.zip -Force
+   ```
+
+   Bên máy nhận chỉ cần giải nén rồi mở `dist/index.html` bằng Chrome hoặc Edge.
+
 ## Cách sử dụng
 
 ### Mở app
@@ -140,6 +162,22 @@ Nếu không nhận ra cấu trúc nào, cả file nằm ở ô 1, ô 2 bị kho
 - Click vào cây rồi dùng **↑ / ↓** để chuyển folder, **← / →** để đóng/mở folder đang chọn.
 
 **Bên phải** là lưới thumbnail của folder đang chọn. Ảnh chỉ được nạp khi cuộn tới, nên folder nhiều ảnh vẫn mượt. Click thumbnail không làm gì.
+
+## Phím tắt
+
+| Phím / thao tác | Ở đâu | Tác dụng |
+|---|---|---|
+| **Ctrl + S** | mọi tab | Lưu file đang sửa (caption ở Tab 1, file H3 ở Tab 2) |
+| **↑ / ↓** | cây bên trái (click vào cây trước) | Chuyển ảnh trước / sau (Tab 1, 2), folder trước / sau (Tab 3) |
+| **← / →** | cây ở Tab 3 | Đóng / mở folder đang chọn |
+| **Lăn chuột** | khung ảnh Tab 1 | Zoom quanh vị trí con trỏ |
+| **Kéo chuột trái** | khung ảnh Tab 1 | Di chuyển ảnh (khi không ở chế độ crop) |
+| **Kéo chuột giữa** | khung ảnh Tab 1 | Di chuyển ảnh (cả khi đang crop) |
+| **Esc** | khung ảnh Tab 1 | Thoát chế độ crop |
+| **Ctrl + Z** | ô Prompt Tab 1 | Hoàn tác, kể cả lần chèn chip từ mẫu |
+| **Enter** | ô Số ảnh ≤ (Tab 3) | Chạy Filt |
+| **Enter** | ô Nội dung chèn trong cửa sổ ⚙ | Thêm từ mẫu |
+| **Esc** | hộp thoại | Đóng hộp thoại |
 
 ## Dữ liệu được lưu ở đâu?
 
