@@ -17,6 +17,7 @@ PersonalTools/
 │   ├── MacOS.qss — Giao diện tối ưu cho macOS.
 │   ├── classifyNSFW.py — Phân loại ảnh an toàn/nhạy cảm bằng NudeNet.
 │   ├── cluster_image.py — Gom cụm ảnh dựa trên metadata và từ khóa.
+│   ├── groupImage_baseonID.py — Gom ảnh vào folder con theo index đọc từ tên file (format kiểu `1_2_3_4_56` hoặc `{index}` template), copy hoặc move.
 │   ├── manager_folder2.py — Tổ chức thư mục ảnh theo cấu hình mạng xã hội.
 │   └── softChoice.py — Lọc ảnh có khuôn mặt và gom nhóm bằng CLIP + InsightFace.
 ├── prompt/ — Xử lý và chuẩn hoá prompt.
