@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en" data-theme="sunny">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prompt Collector</title>
+<style>
+:root{
+  --serif:"Sitka Heading","Sitka Text",Cambria,Georgia,serif;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,monospace;
+  --r-lg:16px; --r:12px; --r-sm:9px;
+}
+[data-theme=sunny]{
+  --bg:#FFF6E9; --bg-2:#FFEFD8; --card:#FFFFFF; --ink:#2A2140; --ink-2:#5B5170; --muted:#8C8299;
+  --line:#F1DFC6; --primary:#FF6A3D; --primary-2:#FF9A3D; --on-primary:#fff;
+  --accent:#12B3A3; --accent-wash:#DDF6F2; --danger:#E5384F; --danger-wash:#FFE3E6;
+  --shadow:43 25 10;
+}
+[data-theme=berry]{
+  --bg:#F3F0FF; --bg-2:#E9E3FF; --card:#FFFFFF; --ink:#231B3D; --ink-2:#51476E; --muted:#857BA0;
+  --line:#E0D8FA; --primary:#7B4DFF; --primary-2:#B14DFF; --on-primary:#fff;
+  --accent:#FF4F8B; --accent-wash:#FFE3EE; --danger:#E5384F; --danger-wash:#FFE3E6;
+  --shadow:45 20 110;
+}
+[data-theme=sky]{
+  --bg:#EEF6FF; --bg-2:#DFEDFF; --card:#FFFFFF; --ink:#13233F; --ink-2:#3E5070; --muted:#7486A3;
+  --line:#D5E4F7; --primary:#2E6BFF; --primary-2:#22B8FF; --on-primary:#fff;
+  --accent:#FFB020; --accent-wash:#FFF1D6; --danger:#E5384F; --danger-wash:#FFE3E6;
+  --shadow:20 50 120;
+}
+:root{
+  --sh-1:0 1px 2px rgb(var(--shadow)/.08), 0 2px 6px rgb(var(--shadow)/.06);
+  --sh-2:0 2px 4px rgb(var(--shadow)/.06), 0 10px 24px -6px rgb(var(--shadow)/.16);
+  --sh-3:0 4px 10px rgb(var(--shadow)/.08), 0 20px 40px -12px rgb(var(--shadow)/.28);
+  --inset:inset 0 2px 4px rgb(var(--shadow)/.06);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);transition:background .25s}
+button,input,textarea,select{font:inherit;color:inherit}
+
+.themes{position:fixed;right:16px;bottom:16px;z-index:50;display:flex;gap:6px;padding:6px;background:var(--card);border-radius:999px;box-shadow:var(--sh-3)}
+.themes button{border:0;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:var(--ink-2)}
+.themes button.on{background:var(--ink);color:var(--card)}
+.themes small{align-self:center;font-size:11px;color:var(--muted);padding:0 6px}
+
+.mast{display:flex;align-items:center;gap:24px;padding:22px 32px}
+.logo{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;color:var(--on-primary);font:700 20px var(--serif);
+  background:linear-gradient(135deg,var(--primary),var(--primary-2));box-shadow:var(--sh-2)}
+.mast h1{font:700 28px/1 var(--serif);margin:0;letter-spacing:-.01em}
+.mast .sub{color:var(--muted);font-size:12.5px;margin-top:4px}
+.spacer{flex:1}
+.stat{background:var(--card);border-radius:var(--r);padding:10px 16px;box-shadow:var(--sh-1);text-align:right;min-width:104px}
+.stat b{display:block;font:700 26px/1 var(--serif);font-variant-numeric:tabular-nums}
+.stat span{font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.stat.hot b{color:var(--primary)}
+
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 32px;padding:10px 12px;background:var(--card);border-radius:var(--r-lg);box-shadow:var(--sh-2)}
+.field{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-2);padding:0 6px}
+.field input,.field select{height:36px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--inset);outline:none;transition:border-color .15s,box-shadow .15s}
+.field input{width:70px;font-family:var(--mono)}
+.field select{min-width:160px;font-weight:600;cursor:pointer}
+.field input:focus,.field select:focus{border-color:var(--primary);box-shadow:var(--inset),0 0 0 3px color-mix(in srgb,var(--primary) 22%,transparent)}
+.hint{font:12px var(--mono);color:var(--muted)}
+.sep{width:1px;align-self:stretch;background:var(--line);margin:4px 2px}
+
+.btn{height:38px;border:0;border-radius:var(--r);padding:0 16px;font-weight:650;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+  background:var(--card);color:var(--ink);box-shadow:var(--sh-1),inset 0 0 0 1px var(--line);transition:transform .14s,box-shadow .14s,background .14s}
+.btn:hover{transform:translateY(-1px);box-shadow:var(--sh-2),inset 0 0 0 1px var(--line)}
+.btn:active{transform:translateY(1px) scale(.98);box-shadow:var(--sh-1)}
+.btn.primary{color:var(--on-primary);background:linear-gradient(135deg,var(--primary),var(--primary-2));box-shadow:var(--sh-2),inset 0 1px 0 rgb(255 255 255/.35)}
+.btn.primary:hover{box-shadow:var(--sh-3),inset 0 1px 0 rgb(255 255 255/.35)}
+.btn.danger{color:var(--danger);box-shadow:none;background:transparent}
+.btn.danger:hover{background:var(--danger-wash)}
+.btn.icon{width:38px;padding:0;justify-content:center}
+
+.desk{display:grid;grid-template-columns:minmax(0,1fr) 440px;gap:20px;padding:20px 32px 40px}
+.panel{background:var(--card);border-radius:var(--r-lg);box-shadow:var(--sh-2);padding:18px}
+.right{position:sticky;top:16px;align-self:start}
+
+.label{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);margin-bottom:8px}
+.label em{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400;color:var(--muted)}
+kbd{font:11px var(--mono);border-radius:6px;padding:1px 6px;background:var(--bg);box-shadow:inset 0 -2px 0 var(--line);border:1px solid var(--line)}
+textarea{width:100%;resize:vertical;padding:14px 16px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);box-shadow:var(--inset);
+  font:13px/1.6 var(--mono);outline:none;transition:border-color .15s,box-shadow .15s,background .15s}
+textarea:focus{background:var(--card);border-color:var(--primary);box-shadow:var(--inset),0 0 0 4px color-mix(in srgb,var(--primary) 18%,transparent)}
+#in{min-height:92px}
+.receipt{font-size:12px;color:var(--muted);margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--accent-wash);color:color-mix(in srgb,var(--accent) 70%,var(--ink))}
+.pill.trig{background:color-mix(in srgb,var(--primary) 14%,var(--card));color:color-mix(in srgb,var(--primary) 75%,var(--ink))}
+.dupe{display:none;margin-top:10px;padding:10px 12px;border-radius:var(--r);background:var(--danger-wash);color:var(--danger);font-size:13px;align-items:center;gap:10px}
+.dupe.show{display:flex;animation:pop .22s cubic-bezier(.2,.9,.3,1.3)}
+
+.listhead{display:flex;align-items:baseline;justify-content:space-between;margin:22px 2px 12px}
+.listhead h2{font:700 18px/1.2 var(--serif);margin:0}
+.listhead span{font-size:12px;color:var(--muted)}
+.slips{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.slip{position:relative;text-align:left;border:0;background:var(--card);border-radius:var(--r);padding:12px 13px;cursor:pointer;min-height:104px;
+  display:flex;flex-direction:column;gap:6px;box-shadow:var(--sh-1),inset 0 0 0 1px var(--line);transition:transform .16s,box-shadow .16s}
+.slip:hover{transform:translateY(-2px);box-shadow:var(--sh-2),inset 0 0 0 1px var(--line)}
+.slip.new{animation:pop .3s cubic-bezier(.2,.9,.3,1.3) both}
+.slip .no{font:700 22px/1 var(--serif);font-variant-numeric:tabular-nums}
+.slip .pv{font:11px/1.45 var(--mono);color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.slip .meta{position:absolute;top:11px;right:11px;font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:999px;background:var(--bg);color:var(--muted)}
+.slip .meta:empty{display:none}
+.slip.dup .meta{background:var(--danger-wash);color:var(--danger)}
+.slip.on{color:var(--on-primary);background:linear-gradient(140deg,var(--primary),var(--primary-2));box-shadow:var(--sh-3)}
+.slip.on .pv{color:rgb(255 255 255/.86)}
+.slip.on .meta{background:rgb(255 255 255/.22);color:#fff}
+.cut{grid-column:1/-1;display:flex;align-items:center;gap:10px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin:2px 0}
+.cut::before,.cut::after{content:"";flex:1;border-top:2px dashed var(--line)}
+
+.edhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.pos{font:700 30px/1 var(--serif);font-variant-numeric:tabular-nums}
+.pos small{font-size:16px;color:var(--muted);font-weight:400}
+.nav{display:flex;gap:6px}
+.tabs{display:inline-flex;gap:4px;padding:4px;border-radius:var(--r);background:var(--bg);box-shadow:var(--inset);margin-bottom:12px}
+.tabs button{border:0;background:none;padding:6px 14px;border-radius:var(--r-sm);cursor:pointer;color:var(--muted);font-size:13px;font-weight:600;transition:background .15s,color .15s}
+.tabs button.on{background:var(--card);color:var(--ink);box-shadow:var(--sh-1)}
+.trigline{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;color:var(--muted)}
+.trigline code{font:12px var(--mono);padding:4px 10px;border-radius:var(--r-sm);background:color-mix(in srgb,var(--primary) 12%,var(--card));color:color-mix(in srgb,var(--primary) 80%,var(--ink))}
+#ed{min-height:340px}
+.orig{padding:14px 16px;border-radius:var(--r);background:var(--bg);box-shadow:var(--inset);font:13px/1.6 var(--mono);white-space:pre-wrap;color:var(--ink-2);min-height:200px}
+.orig del{color:var(--danger);background:var(--danger-wash);border-radius:4px;text-decoration-thickness:1px}
+.edfoot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;color:var(--muted)}
+
+dialog{width:520px;max-width:calc(100vw - 32px);padding:0;border:0;border-radius:20px;background:var(--card);color:var(--ink);box-shadow:var(--sh-3)}
+dialog[open]{animation:pop .24s cubic-bezier(.2,.9,.3,1.2)}
+dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
+.dlg{padding:20px 22px 22px}
+.dlg h3{font:700 18px/1.2 var(--serif);margin:0}
+.dlg p{margin:4px 0 14px;font-size:12.5px;color:var(--muted)}
+.dlghead{display:flex;justify-content:space-between;align-items:center}
+.preset{border-radius:var(--r);padding:12px;background:var(--bg);box-shadow:var(--inset);margin-bottom:10px;display:grid;gap:8px}
+.preset label{display:grid;gap:4px;font-size:11.5px;font-weight:700;color:var(--ink-2);text-transform:uppercase;letter-spacing:.04em}
+.preset input{height:34px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--card);font:12.5px var(--mono);outline:none;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink)}
+.preset input:focus{border-color:var(--primary)}
+.preset .row{display:grid;grid-template-columns:1fr 2fr;gap:8px}
+
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,90px);opacity:0;background:var(--ink);color:var(--card);padding:10px 16px;border-radius:999px;
+  font-size:13px;box-shadow:var(--sh-3);transition:transform .25s cubic-bezier(.2,.9,.3,1.2),opacity .2s}
+.toast.show{transform:translate(-50%,0);opacity:1}
+
+@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="themes" aria-label="Mockup palette switcher"><small>Palette</small>
+  <button data-th="sunny" class="on">Sunny</button><button data-th="berry">Berry</button><button data-th="sky">Sky</button>
+</div>
+
+<header class="mast">
+  <div class="logo">P</div>
+  <div><h1>Prompt Collector</h1><div class="sub">Autosaved locally · last change 14:02</div></div>
+  <div class="spacer"></div>
+  <div class="stat hot"><b id="total">0</b><span>prompts</span></div>
+  <div class="stat"><b id="files">0</b><span>files</span></div>
+</header>
+
+<div class="bar">
+  <label class="field">Trigger
+    <select id="trig"><option value="">None</option><option value="0" selected>Ivan_Ryo</option><option value="1">Mai_Lin</option></select>
+  </label>
+  <button class="btn icon" id="trigOpen" title="Edit trigger presets" aria-label="Edit trigger presets">✎</button>
+  <span class="sep"></span>
+  <label class="field">Per file <input type="number" id="per" value="5" min="1"></label>
+  <span class="hint" id="namehint"></span>
+  <div class="spacer"></div>
+  <button class="btn icon" title="Strip keywords" aria-label="Strip keywords">✂</button>
+  <button class="btn danger">Clear list</button>
+  <button class="btn">Export JSON</button>
+  <button class="btn primary">Export TXT</button>
+</div>
+
+<main class="desk">
+  <section>
+    <div class="panel">
+      <label class="label" for="in"><span>Paste prompt</span><em><kbd>Enter</kbd> add · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</em></label>
+      <textarea id="in" placeholder="Paste a prompt and press Enter"></textarea>
+      <div class="receipt" id="receipt"></div>
+      <div class="dupe" id="dupe">Same as <b id="dupeNo"></b> after cleanup.<span class="spacer"></span>
+        <button class="btn" id="skip">Skip</button><button class="btn primary" id="addAnyway">Add anyway</button></div>
+    </div>
+    <div class="listhead"><h2>Collected</h2><span>Newest first · export runs #1 → #n</span></div>
+    <div class="slips" id="slips"></div>
+  </section>
+
+  <aside class="panel right">
+    <div class="edhead"><div class="pos" id="pos"></div>
+      <div class="nav"><button class="btn icon" id="prev" aria-label="Previous">←</button><button class="btn icon" id="next" aria-label="Next">→</button></div></div>
+    <div class="tabs"><button class="on" data-t="clean">Cleaned</button><button data-t="orig">Original</button><button data-t="final">Export preview</button></div>
+    <div class="trigline" id="trigline"></div>
+    <textarea id="ed" aria-label="Edit prompt"></textarea>
+    <div class="orig" id="orig" hidden></div>
+    <div class="edfoot"><span id="chars"></span><button class="btn danger">Delete prompt</button></div>
+  </aside>
+</main>
+
+<dialog id="trigDlg" aria-label="Trigger presets">
+  <div class="dlg">
+    <div class="dlghead"><h3>Trigger presets</h3><button class="btn icon" id="trigClose" aria-label="Close">×</button></div>
+    <p>The active trigger is put at the start of every exported prompt. If the prompt already contains one of the "already described" phrases, only the token is added.</p>
+    <div class="preset"><div class="row">
+      <label>Token<input value="Ivan_Ryo"></label><label>Description<input value="A 25yo Asian young man."></label></div>
+      <label>Already described if prompt contains (comma separated)<input value="asian young man, young asian man, asian man"></label></div>
+    <div class="preset"><div class="row">
+      <label>Token<input value="Mai_Lin"></label><label>Description<input value="A 22yo Vietnamese young woman."></label></div>
+      <label>Already described if prompt contains (comma separated)<input value="vietnamese woman, young vietnamese woman"></label></div>
+    <button class="btn">+ Add preset</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// Mockup only: sample data, no persistence.
+const $ = id => document.getElementById(id);
+const kws = ["uploaded photo","facial structure","exact body proportions","reference image"];
+const presets = [
+  { token:"Ivan_Ryo", desc:"A 25yo Asian young man.", has:["asian young man","young asian man","asian man"] },
+  { token:"Mai_Lin", desc:"A 22yo Vietnamese young woman.", has:["vietnamese woman","young vietnamese woman"] },
+];
+const clean = t => t.replace(/\r\n?/g,"\n").split("\n").map(l => l.split(/(?<=[.!?])\s+/)
+  .filter(s => !kws.some(k => s.toLowerCase().includes(k))).join(" ")).join("\n").replace(/\n\s*\n+/g,"\n").trim();
+const trigger = () => $("trig").value === "" ? null : presets[+$("trig").value];
+function prefix(text){
+  const t = trigger(); if (!t) return "";
+  const low = text.toLowerCase();
+  if (low.includes(t.token.toLowerCase())) return "";
+  return t.has.some(p => low.includes(p)) ? `${t.token}.` : `${t.token}. ${t.desc}`;
+}
+const final = text => { const p = prefix(text); return p ? `${p} ${text}` : text; };
+
+const raw = [
+ "Night market in Taipei, an Asian young man in a denim jacket, neon reflections on wet pavement, 28mm.",
+ "Editorial portrait, charcoal wool coat, overcast Seoul street, muted palette, 85mm lens.\n\nUse face image of the uploaded photo with the exact body proportions, facial proportions, hairstyle and facial structure.",
+ "Hiker on a ridge above a sea of clouds, sunrise, wide angle.",
+ "Young Asian man reading in a sunlit library, dust in the air, warm wood tones.\n\n\nSoft window light, film grain, 50mm.",
+ "Barista pouring latte art, overhead shot, warm cafe ambience.",
+ "Close-up portrait, rim light, black backdrop, dramatic chiaroscuro.",
+];
+let items = raw.map(r => ({ raw:r, text:clean(r) }));
+let sel = items.length - 1, view = "clean", pending = null, lastNew = null;
+
+function render(){
+  const per = Math.max(1, +$("per").value || 1), n = items.length, files = Math.ceil(n / per);
+  $("total").textContent = n; $("files").textContent = files;
+  $("namehint").textContent = files > 1 ? `prompt_20261008_01 … _${String(files).padStart(2,"0")}.txt` : "prompt_20261008.txt";
+  const seen = new Map(); items.forEach((it,i) => { if (!seen.has(it.text)) seen.set(it.text, i+1); });
+  let html = "";
+  for (let i = n - 1; i >= 0; i--) {           // newest first; numbers stay in export order
+    const it = items[i], d = seen.get(it.text) !== i+1 ? seen.get(it.text) : 0;
+    const mark = d ? `= #${d}` : it.raw !== it.text ? "cleaned" : "";
+    html += `<button class="slip ${i===sel?"on":""} ${d?"dup":""} ${i===lastNew?"new":""}" data-i="${i}">
+      <span class="no">${i+1}</span><span class="meta">${mark}</span><span class="pv">${it.text.replace(/</g,"&lt;")}</span></button>`;
+    if (i && i % per === 0) html += `<div class="cut">▲ file ${String(i/per+1).padStart(2,"0")} · file ${String(i/per).padStart(2,"0")} ▼</div>`;
+  }
+  $("slips").innerHTML = html; lastNew = null;
+  const it = items[sel];
+  $("pos").innerHTML = `${sel+1} <small>/ ${n}</small>`;
+  const p = prefix(it.text);
+  $("trigline").innerHTML = trigger() ? (p ? `Adds on export <code>${p}</code>` : `Token already in prompt, nothing added`) : "No trigger selected";
+  $("ed").value = view === "final" ? final(it.text) : it.text;
+  $("ed").readOnly = view === "final";
+  $("ed").hidden = view === "orig"; $("orig").hidden = view !== "orig";
+  $("orig").innerHTML = it.raw.replace(/</g,"&lt;").split(/(?<=[.!?])\s+/).map(s => kws.some(k => s.toLowerCase().includes(k)) ? `<del>${s}</del>` : s).join(" ");
+  $("chars").textContent = `${final(it.text).length} chars on export`;
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === view));
+}
+function add(r){
+  items.push({ raw:r, text:clean(r) }); sel = lastNew = items.length - 1; $("in").value = ""; $("dupe").classList.remove("show");
+  const removed = r.split(/(?<=[.!?])\s+/).filter(s => kws.some(k => s.toLowerCase().includes(k))).length;
+  const p = prefix(clean(r));
+  $("receipt").innerHTML = `<span class="pill">${removed ? `removed ${removed} sentence${removed>1?"s":""}` : "nothing removed"}</span>` +
+    (p ? `<span class="pill trig">+ ${p}</span>` : "");
+  render(); $("in").focus();                   // no scrolling: the new slip appears right under the composer
+}
+$("in").addEventListener("keydown", e => {
+  if (e.key !== "Enter" || e.shiftKey) return; e.preventDefault();
+  const r = $("in").value; if (!r.trim()) return;
+  const d = items.findIndex(x => x.text === clean(r));
+  if (d >= 0) { pending = r; $("dupeNo").textContent = "#"+(d+1); $("dupe").classList.add("show"); return; }
+  add(r);
+});
+$("addAnyway").onclick = () => pending && add(pending);
+$("skip").onclick = () => { $("dupe").classList.remove("show"); $("in").value = ""; };
+$("slips").onclick = e => { const b = e.target.closest(".slip"); if (b) { sel = +b.dataset.i; render(); } };
+$("prev").onclick = () => { sel = Math.max(0, sel-1); render(); };
+$("next").onclick = () => { sel = Math.min(items.length-1, sel+1); render(); };
+$("ed").oninput = e => { if (view === "clean") { items[sel].text = e.target.value; render(); } };
+document.querySelector(".tabs").onclick = e => { if (e.target.dataset.t) { view = e.target.dataset.t; render(); } };
+$("trig").onchange = () => { render(); const t = trigger(); toast(t ? `Trigger ${t.token} applies to all ${items.length} prompts on export` : "Trigger off"); };
+$("per").oninput = render;
+$("trigOpen").onclick = () => $("trigDlg").showModal();
+$("trigClose").onclick = () => $("trigDlg").close();
+$("trigDlg").onclick = e => { if (e.target === $("trigDlg")) $("trigDlg").close(); };
+document.querySelector(".themes").onclick = e => { const th = e.target.dataset.th; if (!th) return;
+  document.documentElement.dataset.theme = th; document.querySelectorAll(".themes button").forEach(b => b.classList.toggle("on", b === e.target)); };
+let tt; function toast(m){ $("toast").textContent = m; $("toast").classList.add("show"); clearTimeout(tt); tt = setTimeout(() => $("toast").classList.remove("show"), 2600); }
+render();
+</script>
+</body>
+</html>
