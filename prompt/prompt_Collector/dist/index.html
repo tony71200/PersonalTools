@@ -137,6 +137,21 @@ dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
 .kw button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;border-radius:6px;padding:2px 6px}
 .kw button:hover{color:var(--danger);background:var(--danger-wash)}
 .addkw{display:flex;gap:8px;margin-top:12px}
+.btn.sw[aria-pressed=true]{color:var(--on-primary);background:linear-gradient(135deg,var(--primary),var(--primary-2));box-shadow:var(--sh-2),inset 0 1px 0 rgb(255 255 255/.35)}
+.btn.sw{min-width:56px}
+.frrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}
+.frrow input,.addkw input.rp{height:36px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--inset);font:12.5px var(--mono);outline:none;color:var(--ink);min-width:0}
+.frrow input{flex:1;min-width:110px}
+.frrow input:focus{border-color:var(--primary);box-shadow:var(--inset),var(--ring)}
+.frrow .hint{min-width:64px}
+.scan{display:none;flex-direction:column;gap:6px;margin-top:10px;padding:10px 12px;border-radius:var(--r);background:var(--accent-wash);font-size:13px}
+.scan.show{display:flex;animation:pop .22s cubic-bezier(.2,.9,.3,1.3)}
+.scanrow{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer}
+.scanrow code{font:12px var(--mono);padding:1px 6px;border-radius:6px;background:var(--card)}
+.scanrow em{font-style:normal;color:var(--muted)}
+.scanbtns{display:flex;gap:8px;justify-content:flex-end}
+.dlgbtns{display:flex;justify-content:flex-end;margin-top:12px}
+#sufText{min-height:110px}
 .addkw input,.preset input{height:36px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--inset);font:12.5px var(--mono);outline:none;color:var(--ink)}
 .addkw input{flex:1}
 .addkw input:focus,.preset input:focus{border-color:var(--primary);box-shadow:var(--inset),var(--ring)}
@@ -183,10 +198,17 @@ dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
     <button class="btn icon" id="trigOpen" aria-label="Edit trigger presets" title="Edit trigger presets">&#9998;</button>
     <span class="sep"></span>
   </div>
+  <div class="trigctl">
+    <span class="field">Suffix</span>
+    <button class="btn sw" id="sufOn" aria-pressed="false" title="Add the suffix to every prompt on export">Off</button>
+    <button class="btn icon" id="sufOpen" aria-label="Edit suffix" title="Edit suffix">&#9998;</button>
+    <span class="sep"></span>
+  </div>
   <label class="field">Prompts per file <input type="number" id="per" min="1" step="1"></label>
   <span class="hint" id="namehint"></span>
   <div class="spacer"></div>
   <button class="btn icon count" id="kwOpen" aria-label="Strip keywords" title="Strip keywords"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.6 7.6 20 18M8.6 16.4 20 6"/></svg><span id="kwCount">0</span></button>
+  <button class="btn icon count" id="rpOpen" aria-label="Find and replace list" title="Find and replace list"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg><span id="rpCount">0</span></button>
   <button class="btn danger" id="clear">Clear list</button>
   <button class="btn" id="exportJson">Export JSON</button>
   <button class="btn primary" id="exportTxt">Export TXT</button>
@@ -196,10 +218,23 @@ dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
   <section>
     <div class="panel">
       <label class="label" for="in"><span>Paste prompt</span><em><kbd>Enter</kbd> add · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</em></label>
+      <div class="frrow">
+        <input id="frFind" placeholder="Find…" aria-label="Find">
+        <button class="btn icon" id="frFindBtn" aria-label="Find next" title="Find next"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></svg></button>
+        <input id="frRep" placeholder="Replace with…" aria-label="Replace with">
+        <button class="btn icon" id="frRepBtn" aria-label="Replace all" title="Replace all"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg></button>
+        <button class="btn icon" id="frSave" aria-label="Save pair to the list" title="Save pair to the list">+</button>
+        <span class="hint" id="frInfo" role="status"></span>
+      </div>
       <textarea id="in" placeholder="Paste a prompt and press Enter"></textarea>
       <div class="receipt" id="receipt"></div>
       <div class="dupe" id="dupe" role="alert">Same as <b id="dupeNo"></b> after cleanup.<span class="spacer"></span>
         <button class="btn" id="skip">Skip</button><button class="btn primary" id="addAnyway">Add anyway</button></div>
+      <div class="scan" id="scan" role="alert">
+        <div>Words from your replace list were found:</div>
+        <div id="scanList"></div>
+        <div class="scanbtns"><button class="btn" id="scanSkip">Skip</button><button class="btn primary" id="scanApply">Replace</button></div>
+      </div>
     </div>
     <div class="listhead"><h2>Collected</h2><span>Newest first · export runs #1 → #n</span></div>
     <div class="slips" id="slips"></div>
@@ -227,6 +262,24 @@ dialog::backdrop{background:rgb(var(--shadow)/.28);backdrop-filter:blur(3px)}
     <p>Any sentence containing one of these is removed on add. Case is ignored. Prompts you edited by hand are left alone.</p>
     <div id="kws"></div>
     <div class="addkw"><input id="kwIn" aria-label="New keyword" placeholder="e.g. reference image"><button class="btn" id="kwAdd">Add</button></div>
+  </div>
+</dialog>
+
+<dialog id="rpDlg" aria-label="Find and replace list">
+  <div class="dlg">
+    <div class="dlghead"><h3>Find &amp; replace list</h3><button class="btn icon" id="rpClose" aria-label="Close">&times;</button></div>
+    <p>When you paste a prompt, every pair found in it is listed so you can choose which to replace. Whole words only; case is ignored.</p>
+    <div id="rps"></div>
+    <div class="addkw"><input class="rp" id="rpFind" aria-label="Find" placeholder="Find, e.g. gym" style="flex:1"><input class="rp" id="rpRep" aria-label="Replace with" placeholder="Replace with" style="flex:1"><button class="btn" id="rpAdd">Add</button></div>
+  </div>
+</dialog>
+
+<dialog id="sufDlg" aria-label="Suffix">
+  <div class="dlg">
+    <div class="dlghead"><h3>Suffix</h3><button class="btn icon" id="sufClose" aria-label="Close">&times;</button></div>
+    <p>While Suffix is on, this text is added to the end of every prompt on export. Your prompts are not changed.</p>
+    <textarea id="sufText" aria-label="Suffix text"></textarea>
+    <div class="dlgbtns"><button class="btn danger" id="sufReset">Reset to default</button></div>
   </div>
 </dialog>
 
@@ -379,7 +432,7 @@ function render() {
   const trig = activeTrigger();
   const body = it ? C.collapseBlank(text) : "";
   const prefix = body ? C.triggerPrefix(body, trig) : "";
-  const final = body ? C.applyTrigger(body, trig) : "";
+  const final = body ? C.applySuffix(C.applyTrigger(body, trig), state.suffix) : "";
   const shown = view === "final" ? final : text;
   if ($("ed").value !== shown) $("ed").value = shown;
   $("ed").readOnly = view === "final";
@@ -395,6 +448,9 @@ function render() {
   document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === view));
   renderKeywords();
   renderTriggerSelect();
+  renderReplacements();
+  $("sufOn").setAttribute("aria-pressed", String(state.suffix.on));
+  $("sufOn").textContent = state.suffix.on ? "On" : "Off";
 }
 
 function renderTriggerSelect() {
@@ -417,6 +473,7 @@ function addPrompt(raw) {
   lastAdded = it.id;
   $("in").value = "";
   hideDupe();
+  hideScan();
   const r = removed.length;
   const prefix = C.triggerPrefix(text, activeTrigger());
   $("receipt").innerHTML = `<span class="pill">${r ? `removed ${r} sentence${r > 1 ? "s" : ""}` : "nothing removed"}</span>` +
@@ -447,7 +504,7 @@ $("addAnyway").onclick = () => {
   addPrompt(raw);
   $("in").focus();
 };
-$("skip").onclick = () => { hideDupe(); $("in").value = ""; $("in").focus(); };
+$("skip").onclick = () => { hideDupe(); hideScan(); $("in").value = ""; $("in").focus(); };
 
 // ---- selection, editor, tabs ----
 function select(i) {
@@ -584,7 +641,7 @@ function download(files) {
   }, n * 150));
 }
 function exportAs(kind) {
-  const { files, skipped } = C.buildFiles(kind, state.items, { perFile: state.perFile, keywords: state.keywords, trigger: activeTrigger() });
+  const { files, skipped } = C.buildFiles(kind, state.items, { perFile: state.perFile, keywords: state.keywords, trigger: activeTrigger(), suffix: state.suffix });
   if (!files.length) { toast("Nothing to export: every prompt is empty."); return; }
   download(files);
   toast(`Exported ${files.length} ${kind.toUpperCase()} file${files.length > 1 ? "s" : ""}` +
@@ -636,6 +693,109 @@ $("trigAdd").onclick = () => {
   changed();
   $("trigList").querySelector(`[data-id="${t.id}"] input`).focus();
 };
+
+// ---- find / replace in the composer (whole words, case ignored) ----
+function frInfo(msg) { $("frInfo").textContent = msg; }
+// Put the new text into the composer through the editor, so Ctrl+Z can undo it.
+function setComposer(text) {
+  const box = $("in");
+  box.focus();
+  box.select();
+  document.execCommand("insertText", false, text);
+}
+function findNext() {
+  const term = $("frFind").value, box = $("in");
+  if (!term.trim()) { frInfo("Type a word to find"); $("frFind").focus(); return; }
+  const n = C.countWord(box.value, term);
+  if (!n) { frInfo("No match"); return; }
+  const m = C.findWord(box.value, term, box.selectionEnd);
+  box.focus();
+  box.setSelectionRange(m.start, m.end);
+  frInfo(`${C.countWord(box.value.slice(0, m.start), term) + 1} of ${n}`);
+}
+function replaceAll() {
+  const term = $("frFind").value;
+  if (!term.trim()) { frInfo("Type a word to find"); $("frFind").focus(); return; }
+  const r = C.replaceWord($("in").value, term, $("frRep").value);
+  if (!r.count) { frInfo("No match"); return; }
+  setComposer(r.text);
+  frInfo(`Replaced ${r.count}`);
+}
+// "ok" | "empty" | "exists"
+function addPair(find, replace) {
+  const f = find.trim();
+  if (!f) return "empty";
+  if (state.replacements.some(p => p.find.toLowerCase() === f.toLowerCase())) return "exists";
+  state.replacements.push({ find: f, replace: replace.trim() });
+  changed();
+  return "ok";
+}
+$("frFindBtn").onclick = findNext;
+$("frRepBtn").onclick = replaceAll;
+$("frFind").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); findNext(); } });
+$("frRep").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); replaceAll(); } });
+$("frFind").addEventListener("input", () => frInfo(""));
+$("frSave").onclick = () => {
+  const r = addPair($("frFind").value, $("frRep").value);
+  frInfo(r === "ok" ? "Saved to the list" : r === "exists" ? "Already in the list" : "Type a word to find");
+};
+
+// ---- scan the replace list right after a paste ----
+let scanHits = [];
+function hideScan() { scanHits = []; $("scan").classList.remove("show"); }
+function runScan() {
+  scanHits = C.scanPairs($("in").value, state.replacements);
+  if (!scanHits.length) { hideScan(); return; }
+  $("scanList").innerHTML = scanHits.map((h, i) =>
+    `<label class="scanrow"><input type="checkbox" data-s="${i}" checked><code>${esc(h.find)}</code> → <code>${esc(h.replace) || "(remove)"}</code><em>${h.count}×</em></label>`).join("");
+  $("scan").classList.add("show");
+}
+$("in").addEventListener("input", e => { if (e.inputType === "insertFromPaste") runScan(); else hideScan(); });
+$("scanApply").onclick = () => {
+  const picked = scanHits.filter((h, i) => $("scanList").querySelector(`[data-s="${i}"]`).checked);
+  hideScan();
+  if (!picked.length) { $("in").focus(); return; }
+  const r = C.applyPairs($("in").value, picked);
+  setComposer(r.text);
+  frInfo(`Replaced ${r.count}`);
+};
+$("scanSkip").onclick = () => { hideScan(); $("in").focus(); };
+
+// ---- replace list dialog ----
+function renderReplacements() {
+  $("rpCount").textContent = state.replacements.length;
+  $("rps").innerHTML = state.replacements.map((p, i) =>
+    `<div class="kw"><span>${esc(p.find)} → ${esc(p.replace) || "<em>(remove)</em>"}</span><span class="hits"></span>` +
+    `<button data-r="${i}" aria-label="Remove ${esc(p.find)}">&times;</button></div>`).join("") || `<p>No pairs yet.</p>`;
+}
+$("rpOpen").onclick = () => { renderReplacements(); $("rpDlg").showModal(); $("rpFind").focus(); };
+$("rpClose").onclick = () => $("rpDlg").close();
+$("rpDlg").addEventListener("click", e => { if (e.target === $("rpDlg")) $("rpDlg").close(); }); // backdrop
+$("rps").addEventListener("click", e => {
+  const i = e.target.dataset.r;
+  if (i === undefined) return;
+  state.replacements.splice(+i, 1);
+  changed();
+});
+$("rpAdd").onclick = () => {
+  const r = addPair($("rpFind").value, $("rpRep").value);
+  if (r === "exists") { toast(`"${$("rpFind").value.trim()}" is already in the list`); return; }
+  if (r === "ok") $("rpFind").value = $("rpRep").value = "";
+  $("rpFind").focus();
+};
+$("rpRep").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("rpAdd").click(); } });
+
+// ---- suffix ----
+$("sufOn").onclick = () => {
+  state.suffix.on = !state.suffix.on;
+  changed();
+  toast(state.suffix.on ? `Suffix on: added to all ${state.items.length} prompts on export` : "Suffix off");
+};
+$("sufOpen").onclick = () => { $("sufText").value = state.suffix.text; $("sufDlg").showModal(); $("sufText").focus(); };
+$("sufClose").onclick = () => $("sufDlg").close();
+$("sufDlg").addEventListener("click", e => { if (e.target === $("sufDlg")) $("sufDlg").close(); }); // backdrop
+$("sufText").addEventListener("input", e => { state.suffix.text = e.target.value; changed(); });
+$("sufReset").onclick = () => { state.suffix.text = $("sufText").value = C.DEFAULT_SUFFIX; changed(); };
 
 boot();
 </script>

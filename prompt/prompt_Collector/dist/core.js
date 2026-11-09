@@ -11,6 +11,8 @@
     already: ["asian young man", "young asian man", "asian man"],
   }];
   const THEMES = ["sunny", "sky"];
+  const DEFAULT_SUFFIX = "White balance 5500K, 50mm lens, f/1.8 aperture. Slightly blur the background for portrait shots. " +
+    "Remove unnecessary details; keep shadows natural and soft.";
 
   // CRLF -> LF, strip trailing spaces per line, collapse any run of blank lines into one "\n", trim.
   // ComfyUI Text_Splitter cuts files on the exact string "\n\n", so no prompt may keep one inside.
@@ -33,6 +35,60 @@
         return !hit;
       }).join(" "));
     return { text: collapseBlank(lines.join("\n")), removed };
+  }
+
+  // ---- find / replace: whole word, case-insensitive. Letters of any script (Vietnamese too) count as word characters.
+  function wordRe(term) {
+    const t = String(term || "").trim();
+    if (!t) return null;
+    const esc = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?<![\\p{L}\\p{N}_])${esc}(?![\\p{L}\\p{N}_])`, "giu");
+  }
+  function countWord(text, term) {
+    const re = wordRe(term);
+    return re ? (String(text).match(re) || []).length : 0;
+  }
+  // Next match at or after `from`, wrapping to the start; null when there is none.
+  function findWord(text, term, from = 0) {
+    const re = wordRe(term);
+    if (!re) return null;
+    const all = [...String(text).matchAll(re)].map(m => ({ start: m.index, end: m.index + m[0].length }));
+    return all.find(m => m.start >= from) || all[0] || null;
+  }
+  function replaceWord(text, find, replace) {
+    const re = wordRe(find);
+    if (!re) return { text, count: 0 };
+    let count = 0;
+    const out = String(text).replace(re, () => { count++; return replace; }); // a function keeps "$" literal
+    return { text: out, count };
+  }
+  // Pairs that occur in text, with their position in the list and how often they occur.
+  function scanPairs(text, pairs) {
+    return pairs.map((p, index) => ({ index, find: p.find, replace: p.replace, count: countWord(text, p.find) }))
+      .filter(p => p.count > 0);
+  }
+  function applyPairs(text, pairs) {
+    let count = 0;
+    for (const p of pairs) {
+      const r = replaceWord(text, p.find, p.replace);
+      text = r.text;
+      count += r.count;
+    }
+    return { text, count };
+  }
+  function cleanPairs(list) {
+    return (Array.isArray(list) ? list : [])
+      .filter(p => p && typeof p.find === "string" && typeof p.replace === "string")
+      .map(p => ({ find: p.find.trim(), replace: p.replace.trim() }))
+      .filter(p => p.find);
+  }
+
+  // ---- suffix: appended at export only, never stored in a prompt ----
+  function applySuffix(text, suffix) {
+    const s = suffix && suffix.on ? String(suffix.text || "").replace(/\s+/g, " ").trim() : "";
+    const body = String(text).replace(/\s+$/, "");
+    if (!s || !body || body.toLowerCase().includes(s.toLowerCase())) return text;
+    return body + (/[.!?]$/.test(body) ? " " : ". ") + s;
   }
 
   function findDuplicate(items, text) {
@@ -76,6 +132,7 @@
     return {
       version: 1, items: [], keywords: DEFAULT_KEYWORDS.slice(), perFile: DEFAULT_PER_FILE, selected: 0,
       triggers: DEFAULT_TRIGGERS.map(t => ({ ...t, already: t.already.slice() })), activeTrigger: "", theme: "sunny",
+      replacements: [], suffix: { text: DEFAULT_SUFFIX, on: false },
     };
   }
 
@@ -92,6 +149,9 @@
     if (!Array.isArray(state.triggers)) state.triggers = defaultState().triggers;
     if (!findTrigger(state.triggers, state.activeTrigger)) state.activeTrigger = "";
     if (!THEMES.includes(state.theme)) state.theme = "sunny";
+    state.replacements = cleanPairs(state.replacements);
+    const sf = state.suffix;
+    if (!sf || typeof sf.text !== "string" || typeof sf.on !== "boolean") state.suffix = defaultState().suffix;
     return { state, corrupt: false };
   }
 
@@ -128,13 +188,14 @@
   }
 
   // kind: "txt" | "json". Text is collapsed again (hand edits may contain blank lines); empty prompts are skipped.
-  // The active trigger is prepended here, never stored in the item.
-  function buildFiles(kind, items, { perFile, keywords, trigger = null, now = new Date() }) {
+  // The active trigger is prepended and the suffix appended here; neither is stored in the item.
+  function buildFiles(kind, items, { perFile, keywords, trigger = null, suffix = null, now = new Date() }) {
     const prompts = [];
     for (const it of items) {
       const body = collapseBlank(it.text);
-      if (body) prompts.push({ ...it, body, text: applyTrigger(body, trigger) });
+      if (body) prompts.push({ ...it, body, text: applySuffix(applyTrigger(body, trigger), suffix) });
     }
+    const suffixText = (suffix && suffix.on && String(suffix.text || "").replace(/\s+/g, " ").trim()) || null;
     const chunks = chunk(prompts, perFile);
     const names = fileNames(now, chunks.length, kind);
     const files = chunks.map((group, part) => ({
@@ -150,6 +211,7 @@
             total: prompts.length,
             strip_keywords: keywords,
             trigger: trigger && triggerPrefix("", trigger) ? { token: cleanToken(trigger.token), description: trigger.description, already: trigger.already } : null,
+            suffix: suffixText,
             prompts: group.map((p, j) => ({
               index: part * perFile + j + 1,
               text: p.text,
@@ -168,6 +230,7 @@
     DEFAULT_KEYWORDS, DEFAULT_PER_FILE, DEFAULT_TRIGGERS, collapseBlank, clean, findDuplicate, reclean,
     triggerPrefix, applyTrigger, parseAlready, findTrigger, defaultState, parseState,
     chunk, move, stamp, isoLocal, fileNames, buildFiles,
+    DEFAULT_SUFFIX, countWord, findWord, replaceWord, scanPairs, applyPairs, cleanPairs, applySuffix,
   };
   root.PromptCore = api;
   if (typeof module === "object" && module.exports) module.exports = api;
