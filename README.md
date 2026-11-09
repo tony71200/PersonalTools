@@ -18,6 +18,7 @@ PersonalTools/
 │   ├── classifyNSFW.py — Phân loại ảnh an toàn/nhạy cảm bằng NudeNet.
 │   ├── cluster_image.py — Gom cụm ảnh dựa trên metadata và từ khóa.
 │   ├── groupImage_baseonID.py — Gom ảnh vào folder con theo index đọc từ tên file (format kiểu `1_2_3_4_56` hoặc `{index}` template), copy hoặc move.
+│   ├── image_folder_studio.py — So sánh tên ảnh giữa hai cây thư mục và quản lý file với PyQt5.
 │   ├── manager_folder2.py — Tổ chức thư mục ảnh theo cấu hình mạng xã hội.
 │   └── softChoice.py — Lọc ảnh có khuôn mặt và gom nhóm bằng CLIP + InsightFace.
 ├── prompt/ — Xử lý và chuẩn hoá prompt.
@@ -43,3 +44,14 @@ PersonalTools/
 ## Sử dụng nhanh
 
 Mỗi thư mục con chứa script độc lập; hãy đọc phần đầu file tương ứng để biết cách chạy và yêu cầu phụ thuộc.
+
+### Image Folder Studio
+
+Chạy trên Windows với PyQt5 và Qt 5.15.
+
+```powershell
+python manager_image/image_folder_studio.py
+```
+
+- **So sánh thư mục** quét cả thư mục con và tính tỷ lệ theo hai chiều. Ảnh khớp theo tên đầy đủ gồm phần mở rộng, bỏ qua hoa/thường, được tô xanh.
+- **Quản lý thư mục** duyệt cây, xem ảnh và tạo thư mục đánh số. Chọn file để sao chép, di chuyển hoặc đưa vào Thùng rác.
