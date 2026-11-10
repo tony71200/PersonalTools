@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
 from image_folder_studio_core import (
     compare_trees, copy_file, create_numbered_folder, is_image, move_file, scan_tree, trash_file,
 )
+from image_folder_studio_usage import DiskUsageTab
 from image_folder_studio_widgets import (
     MATCH_BACKGROUND, MATCH_FOREGROUND, ImageLoader, MatchDelegate, PreviewGrid, Tile, run_background,
 )
@@ -718,6 +719,8 @@ class MainWindow(QMainWindow):
         self.tab_manage = ManageTab()
         self.tabs.addTab(self.tab_compare, "So sánh thư mục")
         self.tabs.addTab(self.tab_manage, "Quản lý thư mục")
+        self.tab_usage = DiskUsageTab()
+        self.tabs.addTab(self.tab_usage, "Dung lượng")
 
 
 def main() -> int:

@@ -55,3 +55,4 @@ python manager_image/image_folder_studio.py
 
 - **So sánh thư mục** quét cả thư mục con và tính tỷ lệ theo hai chiều. Ảnh khớp theo tên đầy đủ gồm phần mở rộng, bỏ qua hoa/thường, được tô xanh.
 - **Quản lý thư mục** duyệt cây, xem ảnh và tạo thư mục đánh số. Chọn file để sao chép, di chuyển hoặc đưa vào Thùng rác.
+- **Dung lượng** xem các ổ đĩa trong **This PC** hoặc chọn thư mục để xem dung lượng từng nhánh so với tổng dung lượng thư mục gốc.
