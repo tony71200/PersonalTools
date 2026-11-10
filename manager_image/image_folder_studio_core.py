@@ -20,6 +20,7 @@ class FolderEntry:
     descendant_count: int
     image_count: int
     cover: Path | None
+    total_bytes: int
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,8 @@ class TreeSnapshot:
     root: Path
     folders: dict[Path, FolderEntry]
     errors: tuple[str, ...]
+    errors_by_folder: dict[Path, tuple[str, ...]]
+    root_unreadable: bool
 
 
 @dataclass(frozen=True)
@@ -48,11 +51,17 @@ def _is_link(info: os.stat_result) -> bool:
     )
 
 
-def _read_directory(folder: Path, errors: list[str]) -> tuple[list[Path], list[Path]]:
+def _read_directory(folder: Path, errors: list[str]) -> tuple[list[Path], list[Path], int, bool]:
     children = []
     files = []
+    direct_bytes = 0
     try:
-        with os.scandir(folder) as entries:
+        entries = os.scandir(folder)
+    except OSError as error:
+        errors.append(f"{folder}: {error}")
+        return children, files, direct_bytes, False
+    try:
+        with entries:
             for entry in entries:
                 try:
                     info = entry.stat(follow_symlinks=False)
@@ -65,32 +74,40 @@ def _read_directory(folder: Path, errors: list[str]) -> tuple[list[Path], list[P
                     children.append(Path(entry.path))
                 elif stat.S_ISREG(info.st_mode):
                     files.append(Path(entry.path))
+                    direct_bytes += info.st_size
     except OSError as error:
         errors.append(f"{folder}: {error}")
     key = lambda path: (path.name.casefold(), path.name)
-    return sorted(children, key=key), sorted(files, key=key)
+    return sorted(children, key=key), sorted(files, key=key), direct_bytes, True
 
 
 def scan_tree(root: Path) -> TreeSnapshot:
     root = Path(os.path.abspath(root))
-    errors = []
     try:
         info = root.lstat()
         if _is_link(info) or not stat.S_ISDIR(info.st_mode):
             raise OSError("Đường dẫn gốc phải là thư mục thường.")
     except OSError as error:
-        return TreeSnapshot(root, {}, (f"{root}: {error}",))
+        errors = (f"{root}: {error}",)
+        return TreeSnapshot(root, {}, errors, {root: errors}, True)
 
     directory_lists = {}
+    errors_by_folder = {}
+    root_unreadable = False
     pending = [root]
     while pending:
         folder = pending.pop()
-        children, files = _read_directory(folder, errors)
-        directory_lists[folder] = (children, files)
+        folder_errors = []
+        children, files, direct_bytes, opened = _read_directory(folder, folder_errors)
+        if folder_errors:
+            errors_by_folder[folder] = tuple(folder_errors)
+        if folder == root:
+            root_unreadable = not opened
+        directory_lists[folder] = (children, files, direct_bytes)
         pending.extend(reversed(children))
 
     folders = {}
-    for folder, (children, files) in reversed(directory_lists.items()):
+    for folder, (children, files, direct_bytes) in reversed(directory_lists.items()):
         images = [path for path in files if is_image(path)]
         child_entries = [folders[child] for child in children]
         cover = images[0] if images else next(
@@ -101,8 +118,10 @@ def scan_tree(root: Path) -> TreeSnapshot:
             sum(1 + entry.descendant_count for entry in child_entries),
             len(images) + sum(entry.image_count for entry in child_entries),
             cover,
+            direct_bytes + sum(entry.total_bytes for entry in child_entries),
         )
-    return TreeSnapshot(root, folders, tuple(errors))
+    errors = tuple(error for messages in errors_by_folder.values() for error in messages)
+    return TreeSnapshot(root, folders, errors, errors_by_folder, root_unreadable)
 
 
 def _image_index(snapshot: TreeSnapshot) -> dict[str, tuple[Path, ...]]:
