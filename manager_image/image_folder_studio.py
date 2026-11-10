@@ -158,7 +158,9 @@ class FolderPane(QGroupBox):
         layout.addWidget(self.path)
         layout.addWidget(split, 1)
         self.tree.currentItemChanged.connect(self._tree_selected)
+        self.tree.itemClicked.connect(self._tree_selected)
         self.grid.currentItemChanged.connect(self._grid_selected)
+        self.grid.itemClicked.connect(self._grid_selected)
 
     def rebuild(self, matches, mode):
         self._matches = matches
@@ -168,33 +170,36 @@ class FolderPane(QGroupBox):
             previous = self.selected
             if previous not in self.tree.items:
                 previous = self._folder if self._folder in self.tree.items else self.root
-            self._select(previous if previous in self.tree.items else None)
+            self.select_path(previous if previous in self.tree.items else None, refresh_grid=True)
 
     def _accepts(self, path):
         if not is_image(path):
             return False
         return self._filter_mode == 0 or (path in self._matches) == (self._filter_mode == 1)
 
-    def _tree_selected(self, item, _previous):
+    def _tree_selected(self, item, _context):
         if item is not None:
-            path = item.data(0, Qt.UserRole)
-            folder = path if path in self.snapshot.folders else path.parent
-            self._select(path, rebuild_grid=folder != self._folder)
-            self.path_selected.emit(self.selected)
+            self._activate(item.data(0, Qt.UserRole))
 
-    def _grid_selected(self, item, _previous):
+    def _grid_selected(self, item, _previous=None):
         if item is not None:
-            self._select(item.data(Qt.UserRole), rebuild_grid=False)
-            self.path_selected.emit(self.selected)
+            self._activate(item.data(Qt.UserRole))
 
-    def _select(self, path, *, rebuild_grid=True):
+    def _activate(self, path):
+        if path != self.selected:
+            self.select_path(path)
+        self.path_selected.emit(path)
+
+    def select_path(self, path, *, refresh_grid=False):
         self.selected = path
         folders = self.snapshot.folders if self.snapshot else {}
-        self._folder = path if path is None or path in folders else path.parent
+        folder = path if path is None or path in folders else path.parent
+        refresh_grid = refresh_grid or folder != self._folder
+        self._folder = folder
         with QSignalBlocker(self.tree), QSignalBlocker(self.grid):
             self.tree.select_path(path)
-            if rebuild_grid:
-                entry = folders.get(self._folder)
+            if refresh_grid:
+                entry = folders.get(folder)
                 files = entry.files if entry else ()
                 self.grid.set_tiles(
                     Tile(file, f"✓ {file.name}" if file in self._matches else file.name,
@@ -259,7 +264,7 @@ class CompareTab(QWidget):
         self.filter.currentIndexChanged.connect(self._refresh_panes)
         for side, pane in self.panes.items():
             pane.pick.clicked.connect(lambda _checked, key=side: self._pick_root(key))
-            pane.path_selected.connect(lambda path, key=side: self._show_file(key, path))
+            pane.path_selected.connect(lambda path, key=side: self._locate_match(key, path))
             pane.grid.image_error.connect(self.log.appendPlainText)
 
     def _pick_root(self, side):
@@ -355,6 +360,14 @@ class CompareTab(QWidget):
             pane.rebuild(self._matches(side), self.filter.currentIndex())
         if self._active_side is not None:
             self._show_file(self._active_side, self.panes[self._active_side].selected)
+
+    def _locate_match(self, side, path):
+        matches = self._matches(side).get(path, ())
+        if matches:
+            opposite = self.panes["B" if side == "A" else "A"]
+            target = opposite.selected if opposite.selected in matches else min(matches)
+            opposite.select_path(target)
+        self._show_file(side, path)
 
     def _show_file(self, side, path):
         self._active_side = side

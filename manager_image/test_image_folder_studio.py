@@ -208,6 +208,44 @@ class QtTests(unittest.TestCase):
             self.assertEqual(tab.panes["A"].snapshot.root, new)
             self.assertTrue(tab.compare.isEnabled())
 
+    def test_compare_selection_locates_counterpart_in_both_directions(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            left = make_file(root, "A/source/deep/Bien.jpg")
+            left_only = make_file(root, "A/source/deep/unique.png")
+            right = make_file(root, "B/archive/old/bien.JPG")
+            right_duplicate = make_file(root, "B/selected/bien.jpg")
+            tab = CompareTab()
+            tab.set_root("A", root / "A")
+            tab.set_root("B", root / "B")
+            ready = QSignalSpy(tab.comparison_ready)
+            tab.start_compare()
+            self.assertTrue(ready.wait(3000))
+            pane_a, pane_b = tab.panes["A"], tab.panes["B"]
+
+            pane_a.tree.setCurrentItem(pane_a.tree.items[left])
+            self.assertEqual(pane_b.tree.currentItem().data(0, Qt.UserRole), right)
+            self.assertEqual(pane_b.grid.currentItem().data(Qt.UserRole), right)
+            self.assertTrue(pane_b.tree.items[right.parent].isExpanded())
+            self.assertIn(str(right_duplicate.relative_to(pane_b.root)), tab.details.toPlainText())
+
+            pane_b.tree.setCurrentItem(pane_b.tree.items[right_duplicate.parent])
+            pane_a.tree.setCurrentItem(pane_a.tree.items[left_only])
+            self.assertEqual(pane_b.selected, right_duplicate.parent)
+            pane_b.grid.setCurrentRow(0)
+            self.assertEqual(pane_a.tree.currentItem().data(0, Qt.UserRole), left)
+            self.assertEqual(pane_a.grid.currentItem().data(Qt.UserRole), left)
+            self.assertTrue(tab.details.toPlainText().splitlines()[1].startswith("B · "))
+
+            pane_a.grid.itemClicked.emit(pane_a.grid.currentItem())
+            self.assertEqual(pane_b.selected, right_duplicate)
+
+            # Clicking an already-selected image should also locate it again.
+            pane_b.tree.setCurrentItem(pane_b.tree.items[right_duplicate.parent])
+            pane_a.tree.itemClicked.emit(pane_a.tree.items[left], 0)
+            self.assertEqual(pane_b.selected, right)
+            self.assertTrue(tab.details.toPlainText().splitlines()[1].startswith("A · "))
+
     def test_manage_tab_browses_and_creates_folder(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
