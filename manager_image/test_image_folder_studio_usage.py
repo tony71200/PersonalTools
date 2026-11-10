@@ -1,10 +1,12 @@
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from image_folder_studio_core import scan_tree
+from image_folder_studio_usage import format_bytes, format_ratio, read_drives
 
 
 class FolderUsageTests(unittest.TestCase):
@@ -42,3 +44,32 @@ class FolderUsageTests(unittest.TestCase):
             self.assertFalse(snapshot.root_unreadable)
             with patch("image_folder_studio_core.os.scandir", side_effect=PermissionError("denied")):
                 self.assertTrue(scan_tree(root).root_unreadable)
+
+
+class DriveUsageTests(unittest.TestCase):
+    def test_reads_ready_drive_letters_in_order(self):
+        def volume(path, label, total=1000, free=250, ready=True, valid=True):
+            return SimpleNamespace(
+                rootPath=lambda: path, name=lambda: label,
+                isValid=lambda: valid, isReady=lambda: ready,
+                bytesTotal=lambda: total, bytesFree=lambda: free,
+            )
+
+        mounted = [
+            volume("E:\\", "Backup"), volume("C:/", "System"),
+            volume("c:/", "Duplicate"), volume("D:/", "", ready=False),
+            volume("C:/mount", "Mount"), volume("F:/", "", free=-1),
+            volume("G:/", "", valid=False),
+        ]
+        with patch("image_folder_studio_usage.QStorageInfo.mountedVolumes", return_value=mounted):
+            drives = read_drives()
+        self.assertEqual([(d.letter, d.label, d.used_bytes) for d in drives],
+                         [("C:", "System", 750), ("E:", "Backup", 750)])
+
+    def test_format_size_and_empty_ratio(self):
+        self.assertEqual(format_bytes(3_200_000_000), "3,2 GB")
+        self.assertEqual(format_bytes(999), "999 B")
+        self.assertEqual(format_bytes(1_000), "1 KB")
+        self.assertEqual(format_ratio("Ảnh", 3_200_000_000, 10_000_000_000),
+                         (3200, "Ảnh — 3,2 GB / 10 GB (32%)"))
+        self.assertEqual(format_ratio("Rỗng", 0, 0), (0, "Rỗng — 0 B / 0 B (—)"))
